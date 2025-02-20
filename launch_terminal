@@ -1,0 +1,16 @@
+#!/bin/bash
+
+
+export LOGNAME=root
+export XDG_SESSION_TYPE=tty
+export HOME=/home/root
+export QT_QPA_PLATFORM=wayland
+export XDG_SESSION_CLASS=user
+export TERM=xterm
+export USER=root
+export SHLVL=1
+
+source /home/root/.bashrc
+
+/usr/bin/weston-terminal
+

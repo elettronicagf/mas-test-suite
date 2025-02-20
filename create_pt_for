@@ -1,0 +1,580 @@
+#!/bin/bash
+# Author:  Marco Destro <marco.destro@maselettronica.com>
+#
+# Copyright (C) 2019 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+BG='\033[0;44m'
+BLU='\033[1;37m'
+STNDOUT="/dev/tty"
+MAX_MEDIASIZE_GiB="64"
+USB_LABEL="LNKS00_"
+LOGSTATUS="VERBOSE"
+FDISK_REF_VERSION="2.37.4"
+BC_REF_VERSION="1.07.1"
+ONE_KB=1024
+ONE_MB=1048576
+ONE_GB=1073741824
+SECT_SIZE=512
+SECT_32M=65536			# spazio di 32MB
+SECT_16M=32768			# spazio di 16MB
+UBOOT_SPACE=20480		# spazio di 10MB
+RFS_USD=6291450			# spazio di 3GB
+RFS_SIZE=1048580 		# spazio di 512MB
+MARGIN_M=204800			# spazio di 100MB
+COMMAND="$(basename "$0")"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") <type> <dev> <max_size> <label>
+
+where:
+	<type>	   	can be 
+			--cgv-usd if you wish to have a partition table suitable for uSD Linux.
+			--cgv-prod if you wish to have a partition table suitable for production uSD Linux.
+			--cgv-emmc if you wish to have a partition table suitable for eMMC Linux.
+
+	<dev>	   	can be device like /dev/sdX or /dev/mmcblkX
+
+	<max_size> 	we could be interested to reduce the whole size of the partition or not partion
+			an entire media. E.g: a 4GB is enough fot your rfs, but you have a 16GB uSD. Allowed value are
+			--max2G
+			--max4G
+			--max8G
+			--max16G
+			--totalmedia
+
+	<label>		is optional, with this label, the partitions share the label name. It helps to reference a system.
+	
+Prototypes:
+			$COMMAND --cgv-emmc /dev/mmcblk0 --totalmedia CGV000X
+
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+        echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+        echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function logprint()
+{
+        if [[ "$LOGSTATUS" == VERBOSE ]]; then
+		echo -e "${BG}${BLU}$COMMAND:${NON} $1${NON}" > $STNDOUT
+        fi
+}
+#------------------------------------------------------------------------------
+function check_command_version()
+{
+	echo " "
+	echo "##################################################################"
+	echo -e "${GREEN}[1] check_command_version()${NON}: check fdisk and bc version"  > $STNDOUT
+	echo "##################################################################"
+
+	FDISKVERSION=$(fdisk -v | awk '{print $NF}')
+	BCVERSION=$(bc -v | cut -d " " -f 2 | head -n 1)
+
+	echo "Command: fdisk version expected [$FDISK_REF_VERSION] ... Checked [$FDISKVERSION]"
+	echo "Command: bc version expected	[$BC_REF_VERSION] ... Checked [$BCVERSION]"
+	
+	echo " "
+}
+#------------------------------------------------------------------------------
+function check_device_size()
+{
+	echo "##################################################################"
+	echo -e "${GREEN}[2] check_device_size()${NON}: size check for media $1" > $STNDOUT
+	echo "##################################################################"	
+
+	# controllo basato sull'output di fdisk
+	# Disk /dev/sdb: 14,3 GiB, 15376318464 bytes, 30031872 sectors
+	# serve il terzo argomento. Si assume sia espresso in GiB
+	if [ -e $1 ]; then
+		echo -e "Media $1 exists ................................... [${GREEN}OK${NON}]"  > $STNDOUT
+	else
+   		echo -e "Media $1 does not exist ............................. [${RED}FAIL${NON}]" > $STNDOUT
+   		echo " "
+		exit 0;
+	fi
+
+	media_size=$(sudo /sbin/fdisk -l | /bin/grep -w $1 | /usr/bin/awk '{print $3}')
+    echo -e "${GREEN}Media $1 has $media_size in GB ${NON}" > $STNDOUT
+	
+	if (( $(echo "$media_size > $MAX_MEDIASIZE_GiB" |bc -l) )); then
+		echo -e " ${RED} YAY!!! $media_size it's greater than $MAX_MEDIASIZE_GiB ${NON}"
+		echo " "
+		exit 0;
+	else
+		echo -e "Size $media_size it's lower than $MAX_MEDIASIZE_GiB ................................ [${GREEN}OK${NON}]"
+	fi
+	
+	echo " "
+}
+#------------------------------------------------------------------------------
+function check_mount_device()
+{
+	# $1 must be /dev/sdX or /dev/mmcblkX block device type
+	IS_MOUNTED=$( mount | grep "$1" | awk '{print $1}' | xargs -L1 echo )
+	# TODO: ATTENZIONE ricordati di evitare di smontare il rootfs corrente.
+	# TODO: aggiungi controllo.
+	echo "##################################################################"
+	echo -e "${GREEN}[3] check_mount_device()${NON}: check if $1 was mounted before" > $STNDOUT
+	echo "##################################################################"
+	if [ -z "$IS_MOUNTED" ]
+	then
+		echo -e "Device $1 is NOT mounted .......................... [${GREEN}OK${NON}]"
+		#var empty
+	else
+		echo "$1: $IS_MOUNTED. Unmount it before continue!!"
+		IS_MOUNTED=$(mount | grep "$1" | awk '{print $1}' | xargs -L1 umount )
+		sync
+		sleep 2
+		echo "Check it again"
+		if [ -z "$IS_MOUNTED" ]
+		then
+			echo "OK $1 is now unmounted!"
+			#var empty
+		else
+			echo "$1: $IS_MOUNTED. Something went wrong. Abort!"
+			exit 0
+		fi
+	fi
+	
+	echo " "
+}
+#------------------------------------------------------------------------------
+function preset_max_size()
+{
+	echo "##################################################################"
+	echo -e "${GREEN}[4] preset_max_size()${NON}: calculate $2 size in sectors" > $STNDOUT
+	echo "##################################################################"
+
+	case $1 in
+		--max2G)
+			echo -e "Preset max size of media to 2GB" > $STNDOUT
+			mmc_size_in_sectors=4194300
+		shift
+		;;
+		--max4G)
+			echo -e "Preset max size of media to 4GB" > $STNDOUT
+			mmc_size_in_sectors=8388600
+		shift
+		;;
+		--max8G)
+			echo -e "Preset max size of media to 8GB" > $STNDOUT
+			mmc_size_in_sectors=16777200
+		shift
+		;;
+		--max16G)
+			echo -e "Preset max size of media to 16GB" > $STNDOUT
+			mmc_size_in_sectors=33554400
+		shift
+		;;
+		--totalmedia)
+			echo -e "Use total media available space" > $STNDOUT
+			mmc_size_in_sectors=$(sudo /sbin/fdisk -l | /bin/grep -w $2 | /usr/bin/awk '{print $7}')
+		shift
+		;;
+		*)
+			echo -e "${RED}ERROR:check usage guide ${NON}" > $STNDOUT
+			echo -e "$usage" > $STNDOUT
+			exit 0
+		;;
+	esac
+	
+	echo -e "Sectors calculated ..................................... [${GREEN}$mmc_size_in_sectors${NON}]" > $STNDOUT
+	echo " "
+}
+#------------------------------------------------------------------------------
+function erase_media()
+{
+	echo "##################################################################"
+	echo -e "${GREEN}[5] erase_media()${NON}: erasing of $1" > $STNDOUT
+	echo "##################################################################"
+	# Poiche' il minimo delle uSD sara' 8GB <= Capacita' <= 64GB , si cancellino solo quelli 
+	BS=1024
+	COUNT="$(($mmc_size_in_sectors * 512))"
+	den="$(($BS * 1024))"
+    COUNT="$(($COUNT / $den))"
+
+	echo "bs=${BS}K count=$COUNT "
+
+	/bin/sed -e 's/\s*\([\+0-9a-zA-Z]*\).*/\1/' << EOF | sudo fdisk $1
+        o # clear the in memory partition table
+        w # write the partition table
+EOF
+	sync 
+	sleep 5
+	sudo dd if=/dev/zero of=$1 seek=0 bs=${BS}K count=${COUNT} oflag=sync status=progress
+	sync
+	sleep 5
+	echo -e "Erasing media process ....................................... [${GREEN}OK${NON}]" > $STNDOUT
+	echo " "
+}
+#-----------------------------------------------------------------------------
+function create_partition_ext4()
+{
+	echo "##################################################################"
+	echo -e "${GREEN}[6] create_partition_ext4()${NON}: partioning of $1 with ext4" > $STNDOUT
+	echo "##################################################################"
+
+	# 	per settori(sectors), o blocchi (blocks) qui si intendono 512 bytes
+	mmc_size_with_margin="$(($mmc_size_in_sectors - $MARGIN_M))"
+
+	start_ext4_rfs_part="$(($UBOOT_SPACE))"
+	end___ext4_rfs_part="$(($mmc_size_in_sectors - 1))"
+	
+	#LOGS
+	logprint "mmc_size_in_sectors   = $mmc_size_in_sectors"
+	logprint "mmc_size_with_margin  = $mmc_size_with_margin"
+	logprint "start_ext4_part       = $start_ext4_rfs_part "
+	logprint "end_ext4_part         = $end___ext4_rfs_part "
+	echo " "
+	echo -e "${GREEN}Partioning of $1 with margin: size $mmc_size_with_margin ${NON}" > $STNDOUT
+	/bin/sed -e 's/\s*\([\+0-9a-zA-Z]*\).*/\1/' << EOF | sudo /sbin/fdisk $1
+	o # clear the in memory partition table
+	n # new partition
+	p # primary partition
+	1 # partition number 1
+	$start_ext4_rfs_part
+	$end___ext4_rfs_part
+	t # partition type 
+	83 # partition code type Linux
+	w # write the partition table
+EOF
+	sync
+	sleep 1
+
+	echo -e "Creating media partitions table ............................. [${GREEN}OK${NON}]" > $STNDOUT
+	echo " "
+}
+#-----------------------------------------------------------------------------
+function create_partition_ext4_fat32()
+{
+	echo "##################################################################"
+	echo -e "${GREEN}[6] create_partition_ext4_fat32()${NON}: partioning of $1 with ext4|exFat" > $STNDOUT
+	echo "##################################################################"
+
+	# 	per settori(sectors), o blocchi (blocks) qui si intendono 512 bytes
+	mmc_size_with_margin="$(($mmc_size_in_sectors - $MARGIN_M))"
+
+	start_ext4_rfs_part="$(($UBOOT_SPACE))"
+	end___ext4_rfs_part="$(($UBOOT_SPACE + $RFS_USD - 1))"
+	
+	start_fat32_data_part="$(($end___ext4_rfs_part + 1))"
+	end___fat32_data_part="$(($mmc_size_with_margin - 1))"
+	
+	#LOGS
+	logprint "mmc_size_in_sectors   = $mmc_size_in_sectors"
+	logprint "mmc_size_with_margin  = $mmc_size_with_margin"
+	logprint "start_ext4_part       = $start_ext4_rfs_part "
+	logprint "end_ext4_part         = $end___ext4_rfs_part "
+	logprint "start_fat32_data_part = $start_fat32_data_part "
+	logprint "end_fat32_data_part   = $end___fat32_data_part "
+	echo " "
+	echo -e "${GREEN}Partioning of $1 with margin: size $mmc_size_with_margin ${NON}" > $STNDOUT
+	/bin/sed -e 's/\s*\([\+0-9a-zA-Z]*\).*/\1/' << EOF | sudo /sbin/fdisk $1
+	o # clear the in memory partition table
+	n # new partition
+	p # primary partition
+	1 # partition number 1
+	$start_ext4_rfs_part
+	$end___ext4_rfs_part
+	t # partition type 
+	83 # partition code type Linux
+	n # new partition
+	p # primary partition
+	2 # primary partition
+	$start_fat32_data_part
+	$end___fat32_data_part
+	t # partition type 
+	2 # partition number 2
+	7 # partition code type exFAT.
+	w # write the partition table
+EOF
+	sync
+	sleep 1
+
+	echo -e "Creating media partitions table ............................. [${GREEN}OK${NON}]" > $STNDOUT
+	echo " "
+}
+#------------------------------------------------------------------------------
+function create_partition_ext4_ext4_ext4()
+{
+	echo "##################################################################"
+	echo -e "${GREEN}[6] create_partition_ext4_ext4_ext4()${NON}: partioning of $1 with ext4|ext4|ext4" > $STNDOUT
+	echo "##################################################################"
+
+	# per settore(sector), o bloccho (block) qui si intendono 512 bytes
+	mmc_size_with_margin="$(($mmc_size_in_sectors - $MARGIN_M))"
+	
+	start_rfsA_part="$(($UBOOT_SPACE))"
+	end___rfsA_part="$(($UBOOT_SPACE + $RFS_SIZE  - 1))"
+
+	start_rfsB_part="$(($end___rfsA_part + 1))"
+	end___rfsB_part="$(($start_rfsB_part + $RFS_SIZE  - 1))"
+	
+	start_runtime_part="$(($end___rfsB_part + 1))"
+	end___runtime_part="$(($mmc_size_with_margin -1))"
+
+	#LOGS
+	logprint "mmc_size_in_sectors  = $mmc_size_in_sectors"
+	logprint "mmc_size_with_margin = $mmc_size_with_margin"
+	logprint "start_rfsA_part      = $start_rfsA_part "
+	logprint "end_rfsA_part        = $end___rfsA_part "
+	logprint "start_rfsB_part      = $start_rfsB_part "
+	logprint "end_rfsB_part        = $end___rfsB_part "
+	logprint "start_runtime_part   = $start_runtime_part "
+	logprint "end_runtime_part     = $end___runtime_part "
+	echo " "
+	echo -e "${GREEN}Partioning of $1 with margin: size $mmc_size_with_margin ${NON}" > $STNDOUT
+	/bin/sed -e 's/\s*\([\+0-9a-zA-Z]*\).*/\1/' << EOF | sudo /sbin/fdisk $1
+	o # clear the in memory partition table
+	n # new partition
+	p # primary partition
+	1 # partition number 1
+	$start_rfsA_part
+	$end___rfsA_part
+	t # partition type 
+	83 # partition code type Linux
+	n # new partition
+	p # primary partition
+	2 # primary partition
+	$start_rfsB_part
+	$end___rfsB_part
+	t # partition type 
+	2 # partition number 2
+	83 # partition code type Linux
+	n # new partition
+	p # primary partition
+	3 # primary partition
+	$start_runtime_part
+	$end___runtime_part
+	t # partition type 
+	3 # partition number 3
+	83 # partition code type Linux
+	w # write the partition table
+EOF
+
+	sync
+	sleep 1
+
+	echo -e "Creating media partitions table ............................. [${GREEN}OK${NON}]" > $STNDOUT
+	echo " "
+}
+#--------------------------------------------------------------------------
+function format_partition_ext4()
+{	
+	echo "##################################################################"
+	echo -e "${GREEN}[7] format_partition_ext4()${NON}: formatting $1 with ext4" > $STNDOUT
+	echo "##################################################################"
+	MEDIANAME=$( echo "$1" | grep mmcblk)
+
+	if [ -z "$MEDIANAME" ]; then
+      	echo "The media is sdX type"
+      	echo " "
+		part1=1
+	else
+      	echo "The media is mmcblk type"
+      	echo " "
+		part1=p1
+	fi
+
+	printf "$ format Linux on $1$part1 ... " > $STNDOUT
+	sudo mkfs -t ext4 -L rfs_$2 $1$part1
+	sync
+
+	sleep 4
+
+	echo -e "Formatting partition process ............................... [${GREEN}OK${NON}]" > $STNDOUT
+	echo -e " " > $STNDOUT
+}
+#--------------------------------------------------------------------------
+function format_partition_ext4_fat32()
+{	
+	echo "##################################################################"
+	echo -e "${GREEN}[7] format_partition_ext4_fat32()${NON}: formatting $1 with ext4|exFat" > $STNDOUT
+	echo "##################################################################"
+	MEDIANAME=$( echo "$1" | grep mmcblk)
+
+	if [ -z "$MEDIANAME" ]; then
+      	echo "The media is sdX type"
+      	echo " "
+		part1=1
+		part2=2
+	else
+      	echo "The media is mmcblk type"
+      	echo " "
+		part1=p1
+		part2=p2
+	fi
+
+	printf "$ format Linux on $1$part1 ... " > $STNDOUT
+	sudo mkfs -t ext4 -L rfs_$2 $1$part1
+	sync
+	
+	printf "$ format extendedFAT on $1$part2 ... " > $STNDOUT
+	sudo mkfs.exfat -n DATA $1$part2
+	sync
+
+	sleep 4
+
+	echo -e "Formatting partitions process ............................... [${GREEN}OK${NON}]" > $STNDOUT
+	echo -e " " > $STNDOUT
+}
+#--------------------------------------------------------------------------
+function format_partition_ext4_ext4_ext4()
+{
+	echo "##################################################################"
+	echo -e "${GREEN}[7] format_partition_ext4_ext4_ext4()${NON}: formatting $1 with ext4|ext4|ext4" > $STNDOUT
+	echo "##################################################################"
+	MEDIANAME=$(echo "$1" | grep mmcblk)
+
+	if [ -z "$MEDIANAME" ]; then
+      	echo "The media is sdX type"
+      	echo " "
+		part1=1
+		part2=2
+		part3=3
+	else
+      	echo "The media is mmcblk type"
+      	echo " "
+		part1=p1
+		part2=p2
+		part3=p3
+	fi
+
+	#format RFS-A
+	printf "$ format Linux on $1$part1 ... " > $STNDOUT
+	sudo mkfs -t ext4 -L rfsA_$2 $1$part1
+	sync
+	
+	#format RFS-B
+	printf "$ format Linux on $1$part2 ... " > $STNDOUT
+	sudo mkfs -t ext4 -L rfsB_$2 $1$part2
+	sync
+
+	#format RUN-TIME
+	printf "$ format Linux on $1$part3 ... " > $STNDOUT
+	sudo mkfs -t ext4 -L runtime_$2 $1$part3
+	sync
+
+	sleep 4
+
+	echo -e "Formatting partitions process ............................... [${GREEN}OK${NON}]" > $STNDOUT
+	echo -e " " > $STNDOUT
+}
+#--------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+	--help|help)
+		echo " "
+		echo -e "${RED}$usage${NON}" > $STNDOUT
+		echo " "
+		exit 0
+	;;
+
+	--cgv-usd|cgv-usd)
+		check_command_version
+		check_device_size $2
+		check_mount_device "$dev_node"
+		preset_max_size "$max_size" "$dev_node"
+		erase_media $2
+		create_partition_ext4 $2
+		format_partition_ext4 $2 $4
+		sudo fdisk -l $2
+		echo " "
+		echo -e "${GREEN}$COMMAND${NON} creation of media ....................... [${GREEN}COMPLETE${NON}]" > $STNDOUT
+		echo " "
+	shift
+	;;	
+	
+	--cgv-prod|cgv-prod)
+		check_command_version
+		check_device_size $2
+		check_mount_device "$dev_node"
+		preset_max_size "$max_size" "$dev_node"
+		erase_media $2
+		create_partition_ext4_fat32 $2
+		format_partition_ext4_fat32 $2 $4
+		sudo fdisk -l $2
+
+		MOUNT__DAT="/mnt/mmc-ext4-data"
+		MAS_FLD="$MOUNT__DAT/Prog-eMMC"
+		BSP_FLD="$MAS_FLD/BSP"
+		MMC=$2
+		MMC_2ND_PART=${2}2
+
+		echo " "
+		echo $MOUNT__DAT
+		echo $MAS_FLD
+		echo $BSP_FLD
+		echo $MMC_2ND_PART
+
+		sudo mkdir $MOUNT__DAT
+		sudo mount $MMC_2ND_PART $MOUNT__DAT
+		sudo mkdir $MAS_FLD
+		sudo mkdir $BSP_FLD
+		sync
+		sudo umount $MOUNT__DAT
+		sudo rm -rf $MOUNT__DAT
+		
+		echo " "
+		echo -e "${GREEN}$COMMAND${NON} creation of media ....................... [${GREEN}COMPLETE${NON}]" > $STNDOUT
+		echo " "
+	shift
+	;;
+	
+	--cgv-emmc|cgv-emmc)
+		check_command_version
+		check_device_size $2
+		check_mount_device "$dev_node"
+		preset_max_size "$max_size" "$dev_node"		#calcola il numero di settori in base alla dimensione massima del device voluto: $mmc_size_in_sectors
+		erase_media "$dev_node"
+		create_partition_ext4_ext4_ext4 $2
+		format_partition_ext4_ext4_ext4 $2 $4
+		sudo fdisk -l $2
+		echo " "
+		echo -e "${GREEN}$COMMAND${NON} creation of media ....................... [${GREEN}COMPLETE${NON}]" > $STNDOUT
+		echo " "
+	shift
+	;;
+	
+	*)
+		echo -e "[${RED}ERROR:Wrong option! ${NON}]" > $STNDOUT
+		echo -e "$usage" > $STNDOUT
+		exit 0
+	;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+module_name="$1"
+dev_node="$2"
+max_size="$3"
+option_label="$4"
+
+#if [ ! "$#" -ge 5 ]; then
+#        echo -e "[${RED}ERROR: Illegal number of parameters ${NON}]" > $STNDOUT
+#        echo -e "[${RED} $usage ${NON}]" > $STNDOUT
+#	exit 0;
+#fi
+main "$module_name" "$dev_node" "$max_size" "$option_label"
+

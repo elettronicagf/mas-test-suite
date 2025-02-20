@@ -1,0 +1,198 @@
+#!/bin/bash
+
+# Author:  Marco Destro <marco.destro@maselettronica.com>
+#
+# Copyright (C) 2019 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+LOGSTATUS="VERBOSE"
+LOGSTATUS="NONE"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+	$COMMAND /dev/mmcblk0 <path_to>/*.tar.gz
+
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+	echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+	echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function logprint()
+{
+	if [[ "$LOGSTATUS" == VERBOSE ]]; then
+		echo -e "LOG: ${NON}$1${NON}" > $STNDOUT
+	fi
+}
+#------------------------------------------------------------------------------
+MOUNT__RFS="/mnt/mmc-ext4-rfs"
+MOUNT__TMP="/tmp/ext4rfs-boot"
+MOUNT__RUNTIME="/mnt/runtime"
+#------------------------------------------------------------------------------
+function check_media ()
+{
+	MEDIANAME=$1
+	#MEDIANAME=$(sudo fdisk -l $MEDIANAME | grep -w "No medium found")
+	_VAR="$(sudo fdisk -l $MEDIANAME)"
+
+	logprint "${FUNCNAME[0]} "
+	if [ -z "$_VAR" ]
+        then
+               	redprint "$MEDIANAME not present!"
+		exit 0
+        else
+                greenprint "$MEDIANAME do exist!"
+        fi
+}
+#------------------------------------------------------------------------------
+function flash_bootloader_on_mmc ()
+{
+        _MEDIA=$1
+        _RFS=$2
+
+        logprint "${FUNCNAME[0]}: sudo mkdir -p $MOUNT__TMP "
+        sudo mkdir -p $MOUNT__TMP
+        sleep 1 && sync
+
+        sudo tar -xf $_RFS -C "$MOUNT__TMP" "./boot/"
+        _TRG_BOOTLD=$(sudo find $MOUNT__TMP -name 'mas-boot*emmc.bin*')
+
+        logprint "${FUNCNAME[0]}: flash $_TRG_BOOTLD on $_MEDIA"
+        sudo dd if="$_TRG_BOOTLD" of="$_MEDIA" bs=1K seek=32 && sync && sleep 3
+        logprint "${FUNCNAME[0]}: sudo rm -rf $MOUNT__TMP "
+        sudo rm -rf $MOUNT__TMP
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+		--help|help)
+			redprint "$usage" 
+			exit 0
+		;;
+    		*)
+			greenprint "######################################################"
+			greenprint "$COMMAND:  "
+			RFS=$2
+			echo $RFS
+			date		
+
+			# create directory mount /boot and /RFS
+			logprint "sudo mkdir -p $MOUNT__RFS"
+			sudo mkdir -p $MOUNT__RFS					# /mnt/mmc-ext4-rfs
+			logprint "sudo mkdir -p $MOUNT__RUNTIME"
+			sudo mkdir -p $MOUNT__RUNTIME					# /mnt/runtime
+			part1=p1
+			part2=p2
+			part3=p3
+
+			# mount them
+			MMC=$1								# /dev/mmcblk0			(eMMC)
+			MMC_1ST_PART=${1}$part1						# /dev/mmcblk0p1		(RFS-A)
+			MMC_2ND_PART=${1}$part2						# /dev/mmcblk0p2		(RFS-B)
+			MMC_3RD_PART=${1}$part3						# /dev/mmcblk0p3		(RUNTIME)
+
+			# check if it exists. 
+			logprint "sudo mount $MMC_1ST_PART $MOUNT__RFS"
+			sudo mount $MMC_1ST_PART $MOUNT__RFS				# mount /dev/mmcblk0p1 /mnt/mmc-ext4-rfs
+			logprint "sudo mount $MMC_3RD_PART $MOUNT__RUNTIME"
+			sudo mount $MMC_3RD_PART $MOUNT__RUNTIME			# mount /dev/mmcblk0p3 /mnt/runtime
+			sleep 2
+
+			sync
+			greenprint "Content of $MOUNT__RFS"
+			ls -ltr $MOUNT__RFS
+			########################################
+			# populate ext4 rfs
+			logprint "sudo rm -rf $MOUNT__RFS contents"
+			sudo rm -r "$MOUNT__RFS"/*
+			sudo rm -r "$MOUNT__RUNTIME"/*
+			sudo mkdir -p $MOUNT__RUNTIME
+			#sudo mkdir -p $MOUNT__RUNTIME/etc/ssh
+			sync
+
+			ls -ltr $MOUNT__RFS
+			logprint "sudo tar -xf $RFS -C $MOUNT__RFS"
+			sudo tar -xf $RFS -C "$MOUNT__RFS"			
+			sync
+			sudo cp -rp "$MOUNT__RFS/var"/* "$MOUNT__RUNTIME"
+        	sync
+			#sudo cp -rp "$MOUNT__RFS/etc/ssh"/* "$MOUNT__RUNTIME/etc/ssh"
+        	#sync
+
+        	# complete cleanup of /var and /etc/ssh
+        	sudo rm -rf "$MOUNT__RFS/var"
+			#sudo rm -rf "$MOUNT__RFS/etc/ssh"
+			sync
+
+        	# create an empty /var and /etc/ssh dir
+        	sudo mkdir "$MOUNT__RFS/var"
+			#sudo mkdir "$MOUNT__RFS/etc/ssh"
+			#sudo mkdir "$MOUNT__RFS/dummy"
+        	sync
+
+        	FSTAB=$MOUNT__RFS/etc/fstab
+        	rm $FSTAB && sync
+
+        	touch $FSTAB && sync
+			printf '/dev/root 	   /                ext4       auto,ro,noatime       0  0\n' > $FSTAB
+			printf '/dev/mmcblk0p3 /var             ext4       auto,defaults,rw      0  0\n' >> $FSTAB
+			printf 'proc           /proc            proc       defaults              0  0\n' >> $FSTAB
+			printf 'devpts         /dev/pts         devpts     mode=0620,gid=5       0  0\n' >> $FSTAB
+			printf 'tmpfs          /run             tmpfs      mode=0755,nodev,nosuid,strictatime 0  0\n' >> $FSTAB
+			printf 'tmpfs          /var/volatile    tmpfs      defaults              0  0\n' >> $FSTAB
+
+			logprint "new FSTAB content: "
+			cat $FSTAB
+			sync && sleep 1
+
+			########################################
+			# at the end . cleanup the mess
+			# unmount and rm -rf dirs
+			sleep 1
+			sync
+			sudo umount $MOUNT__RFS
+			sudo umount $MOUNT__RUNTIME
+			sudo rm -rf $MOUNT__RFS
+			sudo rm -rf $MOUNT__RUNTIME
+			flash_bootloader_on_mmc $MMC $RFS
+			date
+			greenprint "######################################################"
+			shift
+		;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+PARAM1="$1"
+PARAM2="$2"
+# param1 is the media /dev/sdx
+# param2 is the archive of rfs.tar.gz of whatever
+
+check_media "$PARAM1"
+main "$PARAM1" "$PARAM2"
+

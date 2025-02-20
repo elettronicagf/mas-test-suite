@@ -1,0 +1,195 @@
+#!/bin/bash
+
+# Author:  Marco Destro <marco.destro@maselettronica.com>
+#
+# Copyright (C) 2019 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+EMMCDEV="/dev/mmcblk0"
+EMMCDEVPART="/dev/mmcblk0p1"
+TESTMASPATH="/home/root/test-mas"
+PROJ="CGV000X"
+MOUNTEMMC="/mnt/eMMCp1"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+	$COMMAND <without any argument> 
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+        echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+        echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function check_mount_device()
+{
+	# $1 must be /dev/sdX or /dev/mmcblkX block device type
+	IS_MOUNTED=$( mount | grep "$1" | awk '{print $1}' | xargs -L1 echo )
+	# TODO: ATTENZIONE ricordati di evitare di smontare il rootfs corrente.
+	# TODO: aggiungi controllo.
+	echo "##################################################################"
+	echo "Check if $1 was mounted before"
+	echo "##################################################################"
+	if [ -z "$IS_MOUNTED" ]
+	then
+		echo "OK $1 is NOT mounted."
+		#var empty
+	else
+		echo "$1: $IS_MOUNTED. Unmount it before continue!!"
+		IS_MOUNTED=$(mount | grep "$1" | awk '{print $1}' | xargs -L1 umount )
+		sync
+		sleep 2
+		echo "$0: Check it AGAIN"
+		if [ -z "$IS_MOUNTED" ]
+		then
+			echo "OK $1 is now unmounted!"
+			#var empty
+		else
+			echo "$1: $IS_MOUNTED. Something went wrong. Abort!"
+			exit 0
+		fi
+	fi
+}
+#------------------------------------------------------------------------------
+function emmc_check_format()
+{
+	DEVICE="$EMMCDEV"
+
+	# Check if the device exists
+	if [ ! -e "$DEVICE" ]; then
+		echo "The device $DEVICE does not exist."
+		exit 1
+	fi
+
+	# Check the partitions in the device
+	partitions=$(ls ${DEVICE}p*)
+	ext4_partition_found=false
+
+	# Iterate over the partitions
+	for partition in $partitions; do
+		# Check the file system type of the partition
+		fs_type=$(blkid -o value -s TYPE $partition)
+		if [ "$fs_type" == "ext4" ]; then
+			ext4_partition_found=true
+			break
+		fi
+	done
+
+	# Check if at least one ext4 partition was found
+	if $ext4_partition_found; then
+		echo "At least one ext4 partition found in $DEVICE." > $STDOUT
+		_val="EMMC_FORMATTED"
+	else
+		echo "No ext4 partitions found in $DEVICE." > $STDOUT
+		_val="EMMC_VIRGIN"
+	fi
+	echo $_val
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+		--help|help)
+			redprint "$usage" 
+			exit 0
+		;;
+		*)
+		re='^[0-9]+$'
+		greenprint "$COMMAND: START "
+		greenprint "$COMMAND: let's do a safety check on eMMC ... "
+		/home/root/test-mas/test_som_emmc
+		if [ $? -eq 1 ]; then
+    		    greenprint "$COMMAND: eMMC safety check PASS"
+    		    # Continua con il resto dello script
+		else
+    		    redprint "$COMMAND: eMMC safety check FAIL. STOP!"
+		    exit 1
+		fi
+		output=$(/usr/sbin/fsck.exfat /dev/mmcblk1p2 2>&1)
+		# Verifica se l'output contiene "No errors found"
+		if echo "$output" | grep -q "No errors found"; then
+			greenprint "File system EXFAT check on /dev/mmcblk1p2 ... PASSED."
+		else
+			redprint "File system check on uSD /dev/mmcblk1p2 failed. ERRORS."
+			echo "$output"
+			exit 1
+		fi
+
+		sudo umount /run/media/mmcblk1p2
+		MOUNT_FAT32_FLD="/mnt/produzione"
+		MOUNT_FAT32_DEV="/dev/mmcblk1p2"
+		mkdir -p $MOUNT_FAT32_FLD
+		sudo mount $MOUNT_FAT32_DEV $MOUNT_FAT32_FLD
+		sync
+		BASE_FLD="$MOUNT_FAT32_FLD/Prog-eMMC"
+		BSP_FLD="$BASE_FLD/BSP"
+
+		#val=$($TESTMASPATH/check_emmc_prog_components)
+		#if [[ $val =~ $re ]] ; then
+		#	redprint "$COMMAND: STOP"; exit 0
+		#fi
+
+		# check if eMMC has at least one ext4 partition
+		# EMMC_PART_STATUS=$(emmc_check_format)
+		# EMMC_PART_PRES="EMMC_FORMATTED"
+		# if [ "$EMMC_PART_STATUS" == "$EMMC_PART_PRES" ]; then
+		#	greenprint "$COMMAND: eMMC $EMMCDEV has been already formatted"
+		#	check_mount_device "$EMMCDEV" # unmout unwanted /run/media mount path
+		# else
+		#	redprint "$COMMAND: eMMC $EMMCDEV is virgin. let's format before program"
+		greenprint "$COMMAND: the following command will format the eMMC with specified format "
+		$TESTMASPATH/create_pt_for --cgv-emmc $EMMCDEV --totalmedia CGV000X
+		# fi
+
+		greenprint "$COMMAND: flash kernel and rootfs on eMMC "
+		# /sbin/fw_printenv ethaddr | cut -d= -f2 > /home/root/ethaddr.old
+		# greenprint "$COMMAND: previous ethaddr on eMMC: $(cat /home/root/ethaddr.old)"
+
+		$TESTMASPATH/program_emmc
+
+		# greenprint "$COMMAND: restore original ethaddr on eMMC: $(cat /home/root/ethaddr.old)"
+		# /sbin/fw_setenv ethaddr "$(cat /home/root/ethaddr.old)"
+
+		greenprint "$COMMAND: system poweroff! Rememeber to switch"
+		greenprint "$COMMAND: 1. Rememeber to set Bootswitch in eMMC mode"
+		greenprint "$COMMAND: 2. Power-up from eMMC once and check proper programming."
+		sudo umount $MOUNT_FAT32_FLD
+		sync
+		#killall launch_app.sh && sync
+		dmesg -n 8 && poweroff
+		shift
+		;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+PARAM1="$1"
+#TERMINAL_HEIGHT=$(tput lines)
+for ((i = 0; i < 80; i++)); do
+    echo " " 
+done    
+main "$PARAM1"
+

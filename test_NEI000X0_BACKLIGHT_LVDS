@@ -1,0 +1,105 @@
+#!/bin/bash                                                                    
+ 
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>                      
+#                                                                              
+# Copyright (C) 2023 MAS Elettronica - http://www.maselettronica.com/          
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;              
+# the contents of this file may not be disclosed to third parties, copied      
+# or duplicated in any form, in whole or in part, without the prior            
+# written permission of MAS Elettronica.            
+                
+#------------------------------------------------------------------------------ 
+#--- VARIABLES                                                                  
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'                                                              
+RED='\033[0;31m'                                                                
+NON='\033[0m'   
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+CLEAR_SCREEN='\033[2J'
+CURS_POS='\033[1;1f'
+CURS_UP='\033[1A'
+CURS_DO='\033[1B'
+CURS_FW='\033[2C'
+CURS_BW='\033[1D'
+GET_CUR_POS="\033[6n"
+BACKLIGHTDEV="/sys/class/backlight/backlight_lvds/brightness"
+#------------------------------------------------------------------------------ 
+#--- USAGE Instruction                                                          
+#------------------------------------------------------------------------------ 
+usage="##################################################################         
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+	$COMMAND <brightness%>
+	
+	Example: $COMMAND 60
+	
+	Set the brightness in [%] from [0 -100]%
+                                               
+##################################################################"         
+#------------------------------------------------------------------------------ 
+#--- FUNCTIONs                                                                  
+#------------------------------------------------------------------------------
+function greenprint()
+{                                                                               
+        echo -e "${GREEN}$1${NON}" > $STNDOUT                                   
+}                                                                               
+#------------------------------------------------------------------------------ 
+function redprint()                                                             
+{                                                                              
+        echo -e "${RED}$1${NON}" > $STNDOUT                                    
+}                                                                              
+#------------------------------------------------------------------------------
+function move_cursor()
+{
+	echo -en "${CURS_DO}" > $STNDOUT
+	echo -en "${CURS_FW}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function main ()                                                               
+{       
+        case $1 in                                                             
+                --help|help)                                                   
+                        redprint "$usage"                                       
+                        exit 0                                                  
+                ;;                                                              
+                *)
+						# check if frequency is present
+						if [ -z "$PARAM1" ]
+							then
+								redprint "Brightness parameter missing. Launch with --help."
+								exit 0
+						fi
+
+						# check if brightness % is greater 100%
+						if [ "$PARAM1" -gt 100 ]
+							then
+								BRIGHTNESS=100
+							else
+								BRIGHTNESS=$PARAM1
+						fi
+
+						greenprint "#############################################"  
+						greenprint "$COMMAND"
+						greenprint " " 
+						greenprint "Set the brightness in [0 -100]%"
+						greenprint " "
+						
+						echo "$BRIGHTNESS" > "$BACKLIGHTDEV"	# set the brightness level
+
+						greenprint "Set the LCD brightness to $BRIGHTNESS%"
+						greenprint " "
+
+						sleep 1
+
+						greenprint "#############################################"
+				;;                                                              
+        esac                                                                    
+}                                                                               
+#------------------------------------------------------------------------------ 
+#--- MAIN                                                                       
+#------------------------------------------------------------------------------ 
+PARAM1="$1"                                                                     
+                                                                                
+main "$PARAM1"

@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# Author:  Marco Destro <marco.destro@maselettronica.com>
+#
+# Copyright (C) 2019 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+NAME="rtc-ds1307"
+RTC_DEV="/dev/rtc0"
+SETDATE="2023-09-29 12:00:00"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+	$COMMAND <without any argument> 
+  USe this command to test RTC $NAME. Try to set system time
+  with hwclock command. Power off the system. Then check if the
+  time is correct.
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+        echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+        echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+    		--help|help)
+        		redprint "$usage" 
+    			exit 0
+    		;;
+    		*)
+			greenprint "######################################################"
+			greenprint "$COMMAND ... "
+			echo ""
+			dmesg | grep $NAME
+			echo ""
+			greenprint "set date to $SETDATE"
+			timedatectl set-ntp false
+			timedatectl set-time "$SETDATE"
+			greenprint "save date to $RTC_DEV"
+			hwclock -w -f "$RTC_DEV"
+			sleep 0.5
+			greenprint "check saved date in $RTC_DEV"
+			hwclock -r -f "$RTC_DEV"
+			redprint "At next powerup. Type # date command to check if the settings are consistent."
+			greenprint "######################################################"
+        		shift
+    		;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+PARAM1="$1"
+
+main "$PARAM1"
+

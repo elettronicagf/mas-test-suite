@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Author:  Marco Destro <marco.destro@maselettronica.com>
+#
+# Copyright (C) 2018 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="
+###############################################################
+$(basename "$0") 
+This command Analyze boot time.
+ $ $(basename "$0") --help
+###############################################################
+"
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+			echo -e "${GREEN} ######################### ${NON}" > $STNDOUT
+			systemd-analyze
+			echo -e "${GREEN} ######################### ${NON}" > $STNDOUT
+			systemd-analyze blame
+			echo -e "${GREEN} ######################### ${NON}" > $STNDOUT
+			systemd-analyze critical-chain
+		systemctl --type=service 
+
