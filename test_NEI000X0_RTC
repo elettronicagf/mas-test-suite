@@ -16,7 +16,7 @@ RED='\033[0;31m'
 NON='\033[0m'
 STNDOUT="/dev/tty"
 COMMAND="$(basename "$0")"
-NAME="pcf85363"
+NAME="pcf85063"
 RTC_DEV="/dev/rtc0"
 PROBED="UU"
 #------------------------------------------------------------------------------
@@ -51,9 +51,9 @@ function main ()
 	echo ""
 	dmesg | grep $NAME
 	echo ""
-	PROBE=$(i2cdetect -y -r 0 | tail -n 3 | head -n 1 | awk '{ print $3 }')
+	PROBE=$(i2cdetect -y -r 2 | tail -n 3 | head -n 1 | awk '{ print $3 }')
 	if [ "$PROBE" = "$PROBED" ]; then
-		greenprint "$COMMAND: RTC found and probed ond I2C1 at addr 0x51"
+		greenprint "$COMMAND: RTC found and probed ond I2C2 at addr 0x51"
 	else
 		redprint "$COMMAND: RTC MISSING ON BUS!!! Exit."
 		exit 1;
