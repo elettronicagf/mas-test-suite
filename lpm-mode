@@ -1,0 +1,114 @@
+#!/bin/bash
+
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>
+#
+# Copyright (C) 2025 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+LPMDEV="/sys/devices/platform/imx93-lpm/mode"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="======================================================
+$(basename "$0") HELP
+Change the cpu power mode. 
+Command syntax:
+	
+$COMMAND --help
+$COMMAND <mode> 
+
+
+Parameters:
+	<mode>	0:	1700MHz	OD	DDR-3733 MTS
+		1:	1400MHz	ND	DDR-1866 MTS
+		2:	900MHz	LD	DDR-1866 MTS
+		3:	900MHz	LD	DDR-625 MTS
+  
+Default mode is 0.
+======================================================"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+        echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+        echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+		--help|help)
+			redprint "$usage" 
+			exit 0
+		;;
+
+		*)
+		
+			if [ ! -f "$LPMDEV" ]; then
+				echo "" > $STNDOUT
+				redprint "LPM MODE not available."
+				echo "" > $STNDOUT
+				exit 0
+			fi
+		
+			# retrieve the actual CPU and RAM clock
+			DDRMODE=$(cat $LPMDEV)
+			CPUCLOCK=$(mhz)
+			
+			echo "" > $STNDOUT
+			greenprint "### ACTUAL MODE ###" > $STNDOUT
+			greenprint "CPU: $CPUCLOCK"
+			greenprint "SYS: $DDRMODE"
+			echo "" > $STNDOUT
+			
+			sleep 0.5
+			
+			if [ ! -z "$PARAM1" ]; then
+				if [ "$PARAM1" -ge 0 ] && [ "$PARAM1" -le 3 ]; then
+					# update the system power mode
+					echo $PARAM1 > $LPMDEV
+					sleep 2
+					
+					# retrieve the new CPU and RAM clock
+					DDRMODE=$(cat $LPMDEV)
+					CPUCLOCK=$(mhz)			
+					
+					echo " " > $STNDOUT
+					greenprint "### NEW MODE ###" > $STNDOUT
+					greenprint "CPU: $CPUCLOCK"
+					greenprint "SYS: $DDRMODE"
+					echo " " > $STNDOUT
+					
+				else
+					redprint "Illegal value. MODE must be [0,1,2,3]"
+					redprint "Check --help "
+					echo " " > $STNDOUT
+				fi
+				
+			fi	
+		;;
+	esac
+}                                                                               
+#------------------------------------------------------------------------------ 
+#--- MAIN                                                                       
+#------------------------------------------------------------------------------ 
+PARAM1="$1"                                                                     
+                                                                                
+main "$PARAM1"
+
