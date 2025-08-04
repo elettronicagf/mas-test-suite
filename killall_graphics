@@ -5,4 +5,4 @@ killall weston-simple-touch
 killall weston-editor
 killall weston-terminal
 #killall chromium-bin
-#killall gst-launch-1.0
+killall gst-launch-1.0
