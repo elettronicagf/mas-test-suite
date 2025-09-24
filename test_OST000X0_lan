@@ -1,0 +1,190 @@
+#!/bin/bash
+
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>
+#
+# Copyright (C) 2025 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+LOGSTATUS="VERBOSE"
+ETH_INTERFACE=""
+IP2PING="8.8.8.8"
+ADDR2PING="www.google.com"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+	$COMMAND ethX
+
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+        echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+        echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function logprint()
+{
+        if [[ "$LOGSTATUS" == VERBOSE ]]; then
+                echo -e "$COMMAND. LOG: ${NON}$1${NON}" > $STNDOUT
+        fi
+}
+#------------------------------------------------------------------------------
+function dependacies_check()
+{
+    greenprint "$COMMAND: start ${FUNCNAME[0]}"
+	IS_PRESENT=$(which mii-tool)
+	if [ -z "$IS_PRESENT" ]
+	then
+		redprint "$IS_PRESENT no mii-tool installed!"
+		exit 0;
+	else
+		logprint "$IS_PRESENT ... OK"
+	fi
+}
+#-----------------------------------------------------------------------------
+function lan_mii_test()
+{
+    greenprint "$COMMAND: start ${FUNCNAME[0]}"
+    echo ""
+    #FIRST_LAN=$(mii-tool -vv eth1 | grep negotiated | awk -F: '{print $1}' | head -n 1)
+    #FIRST_LAN=$(mii-tool -vv $ETH_INTERFACE)
+    #dmesg | grep $ETH_INTERFACE | grep fec | grep registered | grep -o -P '(?<=fec).*(?=$ETH_INTERFACE)'
+    dmesg | grep $ETH_INTERFACE
+    #IMX_DEVICE_1ST_LAN=$(dmesg | grep $FIRST_LAN | grep fec | grep registered | grep -o -P '(?<=fec ).*(?='$FIRST_LAN')')
+    echo ""
+    #greenprint "$COMMAND: $FIRST_LAN is on $IMX_DEVICE_1ST_LAN. launch mii-tool -vv $FIRST_LAN"
+    mii-tool -vv $ETH_INTERFACE | grep --color=always -E "registers for MII PHY|$"
+    echo ""
+    
+    greenprint "This test is considered passed if network interface is queried via MDIO bus and the latter responds by giving the info on the link. "
+}
+#-----------------------------------------------------------------------------
+function lan_phy_test()
+{
+    greenprint "$COMMAND: start ${FUNCNAME[0]}"
+    NUM=1
+	ETH0="eth0"
+	
+	if [ "$ETH_INTERFACE" == "$ETH0" ]; then
+		#eth0
+		KSZ_NUM=$(dmesg | grep KSZ9131 | grep 42890000 | tail -n 1 | wc -l)	
+	else
+		#eth1
+		KSZ_NUM=$(dmesg | grep KSZ9131 | grep 428a0000 | tail -n 1 | wc -l)	
+	fi
+	
+	if [ "$KSZ_NUM" -eq "$NUM" ]; then
+		greenprint "$COMMAND: detected KSZ9131 PHY"
+	else
+		redprint "$COMMAND: KSZ9131 not detected."
+	fi
+}
+#-----------------------------------------------------------------------------
+function lan_ping_test()
+{
+    greenprint "$COMMAND: start ${FUNCNAME[0]}"
+    TIME=10
+    greenprint "This test will check if $1 is able to ping an host at least for $TIME sec"
+    FIR_LAN=$PARAM1
+    
+    FILE_1ST_LAN="DHCP"
+    
+    #greenprint "$FIR_LAN is configured by $FILE_1ST_LAN"
+     
+    IPADDR_1ST_LAN=$(ifconfig $ETH_INTERFACE | grep 'inet' | cut -d: -f2 | awk '{print $2}')
+
+    greenprint "$COMMAND: $ETH_INTERFACE has $IPADDR_1ST_LAN"
+
+    timeout $TIME ping -I $ETH_INTERFACE $ADDR2PING
+    timeout $TIME ping -I $ETH_INTERFACE $IP2PING
+    
+    echo ""
+}
+#------------------------------------------------------------------------------
+function lan_interface_check()
+{
+    greenprint "$COMMAND: start ${FUNCNAME[0]}"
+    greenprint "$COMMAND: start ${FUNCNAME[0]} wait until $ETH_INTERFACE becomes ready ... "
+	ifconfig $ETH_INTERFACE up
+	
+	while ! ip link show $ETH_INTERFACE | grep -q 'LOWER_UP'; do
+		sleep 1
+		echo "$ETH_INTERFACE not ready"
+	done
+
+    ETH_IFACE_NUM=$(mii-tool -vv $ETH_INTERFACE | grep -B1 "registers for MII PHY" | awk -F: '{print $1}' | grep -v "MII" | grep -v "\-\-" | wc -l)
+    NUM=1
+	#logprint "$ETH_IFACE_NUM"
+	if [ "$ETH_IFACE_NUM" -eq "$NUM" ]; then
+		greenprint "$COMMAND: Got lan interface"
+		lan_phy_test
+		lan_mii_test
+	else
+		redprint "LAN interface not present."
+		exit 0;
+	fi
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+
+	case $1 in
+		--help|help)
+			redprint "$usage" 
+			exit 0
+			;;
+
+		*)
+			# check input parameters presence
+			if [ -z "$1" ]; then
+				redprint "> Input parameter missing. Use $COMMAND --help"
+				echo ""
+				exit 0;
+			else
+				ETH_INTERFACE="$1"
+				if [ "$ETH_INTERFACE" != "eth0" ] && ["$ETH_INTERFACE" != "eth1"]; then
+					echo ""
+					redprint "> Network interface wrong. Use $COMMAND --help"
+					echo ""
+					exit 0;			
+				fi
+			fi
+		
+			# start test
+			greenprint "######################################################"
+			dependacies_check
+			lan_interface_check $ETH_INTERFACE
+			lan_ping_test $PARAM1
+			greenprint "######################################################"
+			echo ""
+			shift
+			;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+PARAM1="$1"
+
+main "$PARAM1"

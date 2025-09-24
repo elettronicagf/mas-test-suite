@@ -1,0 +1,141 @@
+#!/bin/bash
+
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>
+#
+# Copyright (C) 2025 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+LOGSTATUS="VERBOSE"
+CLEAR_SCREEN='\033[2J'
+CURS_POS='\033[1;1f'
+CURS_UP='\033[1A'
+CURS_DO='\033[1B'
+CURS_FW='\033[2C'
+CURS_BW='\033[1D'
+GET_CUR_POS="\033[6n"
+# this is the sampling interval in sec
+TIMES=1
+ADCPATH="/sys/bus/iio/devices/iio:device0"
+MILLIVOLT="1000.0"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+	echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+	echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function logprint()
+{
+	if [[ "$LOGSTATUS" == VERBOSE ]]; then
+		echo -e "LOG: ${NON}$1${NON}" > $STNDOUT
+	fi
+}
+#------------------------------------------------------------------------------
+function move_cursor()
+{
+	echo -en "${CURS_DO}" > $STNDOUT
+	echo -en "${CURS_FW}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function calc()
+{
+        awk "BEGIN{ printf \"%.3f\n\", $* }";
+}
+#------------------------------------------------------------------------------
+function raw_2_volt()
+{
+        RAW_VAL=$1
+        FACT=$2
+        MILLI=$3
+        _prod=$(calc ${RAW_VAL}*${FACT})
+        _div=$(calc ${_prod}/${MILLI})
+        echo $_div
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+		--help|help)
+			redprint "$usage" 
+			exit 0
+			;;
+
+    	*)	
+			SCALE_FACT=$(cat $ADCPATH/in_voltage_scale)
+
+			echo -en "${CLEAR_SCREEN}"
+			move_cursor
+			trap printout SIGINT
+			printout() {
+				echo ""
+				echo "Finished with count=$count"
+				echo -en "${CLEAR_SCREEN}"
+				exit
+			}
+			
+			while :
+			do
+				((count++))
+				ADC_IN1=$(cat $ADCPATH/in_voltage0_raw)
+				ADC_IN1_CONV=$(raw_2_volt $ADC_IN1 $SCALE_FACT $MILLIVOLT)
+
+				ADC_IN2=$(cat $ADCPATH/in_voltage1_raw)
+				ADC_IN2_CONV=$(raw_2_volt $ADC_IN2 $SCALE_FACT $MILLIVOLT)
+            
+				ADC_IN3=$(cat $ADCPATH/in_voltage2_raw)
+				ADC_IN3_CONV=$(raw_2_volt $ADC_IN3 $SCALE_FACT $MILLIVOLT)
+        
+				ADC_IN4=$(cat $ADCPATH/in_voltage3_raw)
+				ADC_IN4_CONV=$(raw_2_volt $ADC_IN4 $SCALE_FACT $MILLIVOLT)
+		
+				greenprint "1. ADC_IN0 ... $ADC_IN1_CONV [V]"
+				echo -en "${CURS_FW}"
+				greenprint "2. ADC_IN1 ... $ADC_IN2_CONV [V]"
+				echo -en "${CURS_FW}"
+				greenprint "3. ADC_IN2 ... $ADC_IN3_CONV [V]"
+				echo -en "${CURS_FW}"
+				greenprint "4. ADC_IN3 ... $ADC_IN4_CONV [V]"
+
+				echo -en "${CURS_UP}"
+				echo -en "${CURS_UP}"
+				echo -en "${CURS_UP}"
+				echo -en "${CURS_UP}"
+				echo -en "${CURS_FW}"
+				sleep $TIMES
+			done
+			shift
+			;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+PARAM1="$1"
+
+main "$PARAM1"

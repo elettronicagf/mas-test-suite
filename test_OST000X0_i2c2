@@ -1,0 +1,110 @@
+#!/bin/bash
+
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>
+#
+# Copyright (C) 2025 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+LOGSTATUS="VERBOSE"
+CLEAR_SCREEN='\033[2J'
+CURS_POS='\033[1;1f'
+CURS_UP='\033[1A'
+CURS_DO='\033[1B'
+CURS_FW='\033[2C'
+CURS_BW='\033[1D'
+GET_CUR_POS="\033[6n"
+# this is the sampling interval in sec
+TIMES=1
+DEV="EEPROM_SOM"
+DEVPATH="/sys/devices/platform/soc@0/44000000.bus/44350000.i2c/i2c-1/1-0050/uevent"
+CELSIUS="1000.0"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+	echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+	echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function logprint()
+{
+	if [[ "$LOGSTATUS" == VERBOSE ]]; then
+		echo -e "LOG: ${NON}$1${NON}" > $STNDOUT
+	fi
+}
+#------------------------------------------------------------------------------
+function move_cursor()
+{
+	echo -en "${CURS_DO}" > $STNDOUT
+	echo -en "${CURS_FW}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function calc()
+{
+        awk "BEGIN{ printf \"%.1f\n\", $* }";
+}
+#------------------------------------------------------------------------------
+function raw_2_volt()
+{
+        RAW_VAL=$1
+        MILLI=$2
+        _div=$(calc ${RAW_VAL}/${MILLI})
+        echo $_div
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+		--help|help)
+			redprint "$usage" 
+			exit 0
+			;;
+
+    	*)	
+			echo ""
+			cat $DEVPATH > $STNDOUT
+			echo ""
+			
+			OFFSET=$((1 + $RANDOM % 1000))
+			
+			greenprint "testi2ceeprom test $DEV $OFFSET"
+			echo ""
+			/root/test-mas/testi2ceeprom test $DEV $OFFSET > $STNDOUT
+
+			# erase the test pattern on eeprom
+			/root/test-mas/testi2ceeprom erase $DEV $OFFSET >/dev/null 2>/dev/null
+			shift
+			;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+PARAM1="$1"
+
+main "$PARAM1"

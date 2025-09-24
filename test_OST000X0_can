@@ -1,0 +1,96 @@
+#!/bin/bash                                                                    
+ 
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>                      
+#                                                                              
+# Copyright (C) 2025 MAS Elettronica - http://www.maselettronica.com/          
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;              
+# the contents of this file may not be disclosed to third parties, copied      
+# or duplicated in any form, in whole or in part, without the prior            
+# written permission of MAS Elettronica.            
+                
+#------------------------------------------------------------------------------ 
+#--- VARIABLES                                                                  
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'                                                              
+RED='\033[0;31m'                                                                
+NON='\033[0m'  
+PORT="can0"  
+STNDOUT="/dev/tty"
+FILE_SENT="/root/test-mas/tp_can_24frames.txt"
+NFRAMES="24"
+TIMEOUT="20000"
+BITRATE="500000"
+COMMAND="$(basename "$0")" 
+NAME="iMX93 flexcan1 interface"
+#------------------------------------------------------------------------------ 
+#--- USAGE Instruction                                                          
+#------------------------------------------------------------------------------ 
+usage="###############################################################         
+$(basename "$0") HELP                                                          
+  you can use only the followig entries                                        
+        $COMMAND --help                                                         
+        $COMMAND <without any argument>                                         
+  Use this command test $NAME.                                                  
+  Default bitrate is $BITRATE bit/s.                                                
+###############################################################"         
+#------------------------------------------------------------------------------ 
+#--- FUNCTIONs                                                                  
+#------------------------------------------------------------------------------
+function greenprint()
+{                                                                               
+        echo -e "${GREEN}$1${NON}" > $STNDOUT                                   
+}                                                                               
+#------------------------------------------------------------------------------ 
+function redprint()                                                             
+{                                                                              
+        echo -e "${RED}$1${NON}" > $STNDOUT                                    
+}                                                                              
+#------------------------------------------------------------------------------
+function main ()                                                               
+{       
+        case $1 in                                                             
+                --help|help)                                                   
+                        redprint "$usage"                                       
+                        exit 0                                                  
+                ;;                                                              
+                *)  
+						greenprint "#############################################"  
+						greenprint "$COMMAND"                      
+
+						# configure canX interface
+						greenprint "Setup interface $PORT"
+						ip link set "$PORT" down
+						ip link set "$PORT" type can loopback off
+						ip link set "$PORT" type can bitrate "$BITRATE"
+						ip link set "$PORT" up
+					
+						sleep 1
+
+						greenprint "Transmitting pattern file on port $PORT ..."
+					
+						#send N can bus frames from file                                                                             
+						while read -r line;
+						do
+							cansend "$PORT" $line
+						done < "$FILE_SENT"
+
+						greenprint "Transmission complete."
+						greenprint "Waiting for incoming data (20 seconds timeout or 24 frames)..."
+						greenprint " "
+
+						# start receiving can bus frames
+						candump -T "$TIMEOUT" -n "$NFRAMES" "$PORT"
+
+						greenprint " "
+						greenprint "Shutdown interface $PORT"
+						ip link set "$PORT" down
+						greenprint "#############################################"
+				;;                                                              
+        esac                                                                    
+}                                                                               
+#------------------------------------------------------------------------------ 
+#--- MAIN                                                                       
+#------------------------------------------------------------------------------ 
+PARAM1="$1"                                                                     
+                                                                                
+main "$PARAM1"
