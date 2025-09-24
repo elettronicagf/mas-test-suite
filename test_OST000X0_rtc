@@ -1,0 +1,118 @@
+#!/bin/bash
+
+# Author:  Marco Destro <marco.destro@maselettronica.com>
+#
+# Copyright (C) 2019 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+NAME="bbnsm_rtc"
+RTC_DEV="/dev/rtc0"
+PROBED="UU"
+SETDATE="2025-09-24 10:00:00"
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+	$COMMAND --set-and-poweroff 
+	$COMMAND --set-and-reboot
+	$COMMAND --check
+  Use this command to test RTC $NAME. Try to set system time
+  with hwclock command. The results could be different in case of poweroff 
+  or reboot
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+        echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+        echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	echo "Checking the iMX93 internal rtc..."
+	echo ""
+	dmesg | grep $NAME
+	echo ""
+
+	case $1 in
+    	--help|help)
+        		redprint "$usage" 
+    			exit 0
+    		;;
+
+    	--set-and-poweroff)
+			# greenprint "======================================================"
+			greenprint "$COMMAND: set-and-poweroff ... "
+			timedatectl set-ntp false
+			timedatectl set-time "$SETDATE"
+			greenprint "set date to $SETDATE"
+			date -s "$SETDATE"
+			greenprint "save date to $RTC_DEV"
+			hwclock -w -f "$RTC_DEV"
+			sleep 0.5
+			greenprint "check saved date in $RTC_DEV"
+			hwclock -r -f "$RTC_DEV"
+			redprint "At next powerup. Type # test_rtc --check command to check if the settings are consistent."
+			redprint "System is going to powerdown in 3 sec ... "
+			#kill -9 $P
+			sleep 3 && poweroff
+			# greenprint "======================================================="
+        	shift
+			;;
+  
+    	--set-and-reboot)
+			# greenprint "======================================================"
+			greenprint "$COMMAND: set-and-reboot ... "
+			timedatectl set-ntp false
+			timedatectl set-time "$SETDATE"
+			greenprint "set date to $SETDATE"
+			date -s "$SETDATE"
+			greenprint "save date to $RTC_DEV"
+			hwclock -w -f "$RTC_DEV"
+			sleep 0.5
+			greenprint "check saved date in $RTC_DEV"
+			hwclock -r -f "$RTC_DEV"
+			redprint "At next reboot. Type # test_rtc --check command to check if the settings are consistent."
+			redprint "System is going to reboot in 3 sec ... "
+			#kill -9 $P
+			sleep 3 && reboot
+			# greenprint "======================================================="
+        	shift
+			;;
+
+    	--check)
+			echo && dmesg | grep "$NAME" && echo && timedatectl
+			greenprint "check if date is coherent to previous settings."
+        	shift
+    		;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+TERMINAL_HEIGHT=$(tput lines)                                                  
+for ((i = 0; i < TERMINAL_HEIGHT; i++)); do                                        
+    echo " "         
+done        
+PARAM1="$1"
+main "$PARAM1"
