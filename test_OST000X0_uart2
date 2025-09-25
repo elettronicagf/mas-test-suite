@@ -1,0 +1,106 @@
+#!/bin/bash                                                                    
+                                                                               
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>                      
+#                                                                              
+# Copyright (C) 2025 MAS Elettronica - http://www.maselettronica.com/          
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;              
+# the contents of this file may not be disclosed to third parties, copied      
+# or duplicated in any form, in whole or in part, without the prior            
+# written permission of MAS Elettronica.                                        
+                                                                                
+#------------------------------------------------------------------------------ 
+#--- VARIABLES                                                                  
+#------------------------------------------------------------------------------ 
+GREEN='\033[0;32m'                                                              
+RED='\033[0;31m'                                                                
+NON='\033[0m'                                                                   
+STNDOUT="/dev/tty"                                                              
+COMMAND="$(basename "$0")"                                                      
+BAUDRATE="115200"                                                               
+NAME="lpuart2"
+PORT="/dev/ttyLP1"		# UART2	lpuart2
+TESTPATTERN="/root/test-mas/tp_rs232_8k.txt"
+FILE="/root/test-mas/receivedLP1.txt"                              
+#------------------------------------------------------------------------------ 
+#--- USAGE Instruction                                                          
+#------------------------------------------------------------------------------ 
+usage="###############################################################         
+$(basename "$0") HELP                                                          
+  you can use only the followig entries                                        
+        $COMMAND --help                                                         
+        $COMMAND <without any argument>                                         
+  Use this command to test $NAME.
+  Serial TX/RX are required to be cross-connected for the test.                                                
+  Default baudrate is $BAUDRATE.                                                
+###############################################################"                
+#------------------------------------------------------------------------------ 
+#--- FUNCTIONs                                                                  
+#------------------------------------------------------------------------------ 
+function greenprint()                                                           
+{                                                                               
+        echo -e "${GREEN}$1${NON}" > $STNDOUT                                   
+}                                                                               
+#------------------------------------------------------------------------------ 
+function redprint()                                                             
+{                                                                              
+        echo -e "${RED}$1${NON}" > $STNDOUT                                    
+}                                                                              
+#------------------------------------------------------------------------------
+function main ()                                                               
+{                                                                              
+        case $1 in                                                             
+                --help|help)                                                   
+					redprint "$usage"                                       
+                    exit 0                                                  
+                ;;
+                                                              
+                *)                                                              
+					greenprint "############################################"
+                    greenprint "$COMMAND ... "                                                                 
+                    FLD=$(ls /root | grep test-mas)      
+                    echo ""
+                    
+					rm -f $FILE
+                               
+					echo -e  "Configure port baudrate:            $BAUDRATE"
+					stty -F "$PORT" "$BAUDRATE" sane raw -echo
+
+					echo -e  "File data pattern:                  $TESTPATTERN"
+					echo ""
+					
+					echo "Transmission data file to the UART crossed lines..."
+					echo ""
+					cat $PORT > $FILE &			
+
+					cat "$TESTPATTERN" > $PORT
+					sleep 1		    
+
+					killall cat
+
+					echo -e  "Checking the md5 checksum of received file with the original test pattern:"
+					echo ""
+					md5sum $TESTPATTERN $FILE > $STNDOUT
+					echo ""
+					
+					if [[ $(md5sum $TESTPATTERN $FILE | awk '{print $1}' | uniq | wc -l) == 1 ]]
+					then
+						echo -e "TX LPUART2 -> RX LPUART2	  [${GREEN}OK${NON}]"
+					else
+						echo -e "TX LPUART2 -> RX LPUART2	  [${RED}FAIL${NON}]"
+					fi
+					
+					echo ""
+					rm -f $FILE
+								                                         
+					greenprint "############################################"
+					shift                            
+                ;;                                                              
+        esac                                                                    
+}                                                                               
+#------------------------------------------------------------------------------ 
+#--- MAIN                                                                       
+#------------------------------------------------------------------------------ 
+PARAM1="$1"                                                                     
+                                                                                
+main "$PARAM1"                                                                  
+
