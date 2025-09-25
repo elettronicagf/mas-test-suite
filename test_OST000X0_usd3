@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# Author:  Dario Scarpa <dario.scarpa@maselettronica.com>
+#
+# Copyright (C) 2025 MAS Elettronica - http://www.maselettronica.com/
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NON='\033[0m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+LOGSTATUS="VERBOSE"
+CLEAR_SCREEN='\033[2J'
+CURS_POS='\033[1;1f'
+CURS_UP='\033[1A'
+CURS_DO='\033[1B'
+CURS_FW='\033[2C'
+CURS_BW='\033[1D'
+GET_CUR_POS="\033[6n"
+TESTPATH="/root/test-mas"
+TESTFILE="tp_rs232_8k.txt"
+USDFILE="receivedUSD.txt"  
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the followig entries
+	$COMMAND --help
+
+###############################################################"
+#------------------------------------------------------------------------------
+#--- FUNCTIONs
+#------------------------------------------------------------------------------
+function greenprint()
+{
+	echo -e "${GREEN}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+	echo -e "${RED}$1${NON}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function logprint()
+{
+	if [[ "$LOGSTATUS" == VERBOSE ]]; then
+		echo -e "LOG: ${NON}$1${NON}" > $STNDOUT
+	fi
+}
+#------------------------------------------------------------------------------
+function move_cursor()
+{
+	echo -en "${CURS_DO}" > $STNDOUT
+	echo -en "${CURS_FW}" > $STNDOUT
+}
+#------------------------------------------------------------------------------
+function calc()
+{
+        awk "BEGIN{ printf \"%.1f\n\", $* }";
+}
+#------------------------------------------------------------------------------
+function raw_2_volt()
+{
+        RAW_VAL=$1
+        MILLI=$2
+        _div=$(calc ${RAW_VAL}/${MILLI})
+        echo $_div
+}
+#------------------------------------------------------------------------------
+function main ()
+{
+	case $1 in
+		--help|help)
+			redprint "$usage" 
+			exit 0
+			;;
+
+    	*)	
+			rm -f $TESTPATH/$USDFILE
+			
+			DEV=$(mount | grep "/dev/mmcblk2p1" | awk '{ print $3 }')
+			
+			if [[ $DEV ]]; then
+				echo -e  "Mounted uSD3 device at: ${GREEN}$DEV${NON}" > $STNDOUT
+			else 
+				echo -e "No uSD3 device detected." > $STNDOUT
+				echo -e "${RED}TEST FAIL${NON}"
+				exit 0
+			fi
+			
+			echo ""
+			echo "Copying data file to the uSD3 device and copy back..."
+			cp $TESTPATH/$TESTFILE $DEV
+			sleep 1
+			
+			cp $DEV/$TESTFILE $TESTPATH/$USDFILE
+			sleep 1
+			echo ""
+			
+			echo -e  "Checking the md5 checksum of received file with the original file:"
+			echo ""
+			md5sum $DEV/$TESTFILE $TESTPATH/$USDFILE > $STNDOUT
+			echo ""
+	
+			if [[ $(md5sum $DEV/$TESTFILE $TESTPATH/$USDFILE | awk '{print $1}' | uniq | wc -l) == 1 ]]
+			then
+				rm -f $DEV/$TESTFILE
+				echo -e "${GREEN}TEST OK${NON}"
+			else
+				rm -f $DEV/$TESTFILE
+				echo -e "${RED}TEST FAIL${NON}"
+			fi
+			
+			echo ""
+
+			rm -f $TESTPATH/$USDFILE
+			
+			;;
+	esac
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+PARAM1="$1"
+
+main "$PARAM1"
