@@ -109,20 +109,20 @@ function main ()
 			CK_REF="200000000"
 
 			if [ "$VDD" -eq 21 ] && [ "$BUS_WIDTH" -eq 3 ] && [ "$TIMING_SPEC" -eq 10 ] && [ "$SIGNAL_VOLTAGE" -eq 1 ]; then
-				echo -e "eMMC info are ok.                             [${GREEN}OK${NON}]"
+				echo -e "eMMC info are ok.                                  [${GREEN}OK${NON}]"
 				STAT5="OK"
 			else
-				echo -e "eMMC info mismatch.                           [${RED}FAIL${NON}]"
+				echo -e "eMMC info mismatch.                                [${RED}FAIL${NON}]"
 				sudo cat /sys/kernel/debug/mmc0/ios
 				STAT5="ERROR"
 			fi
 
 
 			if [ "$CLOCK" -eq "$CK_REF" ]; then
-				echo -e "eMMC clocks are equal to $CK_REF Hz.        [${GREEN}OK${NON}]"
+				echo -e "eMMC clocks are equal to $CK_REF Hz.             [${GREEN}OK${NON}]"
 				STAT6="OK"
 			else
-				echo -e "eMMC clock mismatch.                          [${RED}FAIL${NON}]"
+				echo -e "eMMC clock mismatch.                               [${RED}FAIL${NON}]"
 				sudo cat /sys/kernel/debug/mmc0/ios
 				STAT6="ERROR"
 			fi
@@ -130,10 +130,10 @@ function main ()
 			SIZE=$(dmesg | grep mmcblk0 | grep GiB | awk '{print $6}')
 
 			if (( $(echo "$SIZE >= 3 && $SIZE <= 4" | bc -l) )); then
-				echo -e "eMMC size $WHICHISEMMC is $SIZE. Close to 4GB.      [${GREEN}OK${NON}]"
+				echo -e "eMMC size $WHICHISEMMC is $SIZE. Close to 4GB.           [${GREEN}OK${NON}]"
 				STAT7="OK"
 			else
-				echo -e "eMMC size $WHICHISEMMC is $SIZE. Mismatch.          [${RED}FAIL${NON}]"
+				echo -e "eMMC size $WHICHISEMMC is $SIZE. Mismatch.               [${RED}FAIL${NON}]"
 				STAT7="ERROR"
 			fi
 
