@@ -107,10 +107,10 @@ function main ()
 			
 			echo -e  "Checking the md5 checksum of received file with the original file:"
 			echo ""
-			md5sum $DEV/$TESTFILE $TESTPATH/$USBFILE > $STNDOUT
+			md5sum $TESTPATH/$TESTFILE $DEV/$TESTFILE $TESTPATH/$USBFILE > $STNDOUT
 			echo ""
 	
-			if [[ $(md5sum $DEV/$TESTFILE $TESTPATH/$USBFILE | awk '{print $1}' | uniq | wc -l) == 1 ]]
+			if [[ $(md5sum $TESTPATH/$TESTFILE $DEV/$TESTFILE $TESTPATH/$USBFILE | awk '{print $1}' | uniq | wc -l) == 1 ]]
 			then
 				rm -f $DEV/$TESTFILE
 				echo -e "${GREEN}TEST OK${NON}"
