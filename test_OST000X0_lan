@@ -117,6 +117,7 @@ function lan_ping_test()
     greenprint "$COMMAND: $ETH_INTERFACE has $IPADDR_1ST_LAN"
 
     timeout $TIME ping -I $ETH_INTERFACE $ADDR2PING
+    echo ""
     timeout $TIME ping -I $ETH_INTERFACE $IP2PING
     
     echo ""
@@ -133,7 +134,7 @@ function lan_interface_check()
 		echo "$ETH_INTERFACE not ready"
 	done
 
-    ETH_IFACE_NUM=$(mii-tool -vv $ETH_INTERFACE | grep -B1 "registers for MII PHY" | awk -F: '{print $1}' | grep -v "MII" | grep -v "\-\-" | wc -l)
+    ETH_IFACE_NUM=$(mii-tool -vv $ETH_INTERFACE | grep -B1 "registers for MII PHY" | awk -F: '{print $1}' | grep -v "MII" | grep -v "\--" | wc -l)
     NUM=1
 	#logprint "$ETH_IFACE_NUM"
 	if [ "$ETH_IFACE_NUM" -eq "$NUM" ]; then
