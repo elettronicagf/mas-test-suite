@@ -93,14 +93,14 @@ function main ()
 					then
 						echo -e "TX LPUART6 -> RX LPUART7	  [${GREEN}OK${NON}]"
 					else
-						echo -e "TX LPUART6 -> RX LPUART7	  [${RED}OK${NON}]"
+						echo -e "TX LPUART6 -> RX LPUART7	  [${RED}FAIL${NON}]"
 					fi
 
 					if [[ $(md5sum $TESTPATTERN $FILE2 | awk '{print $1}' | uniq | wc -l) == 1 ]]
 					then
 						echo -e "TX LPUART7 -> RX LPUART6  	  [${GREEN}OK${NON}]"
 					else
-						echo -e "TX LPUART7 -> RX LPUART6	  [${RED}OK${NON}]"
+						echo -e "TX LPUART7 -> RX LPUART6	  [${RED}FAIL${NON}]"
 					fi
 					
 					echo ""
