@@ -28,6 +28,7 @@ usage="###############################################################
 $(basename "$0") HELP
   you can use only the followig entries
 	$COMMAND --help
+	$COMMAND --set-and-hibernate
 	$COMMAND --set-and-poweroff 
 	$COMMAND --set-and-reboot
 	$COMMAND --check
