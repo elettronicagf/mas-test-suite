@@ -24,11 +24,8 @@ CURS_DO='\033[1B'
 CURS_FW='\033[2C'
 CURS_BW='\033[1D'
 GET_CUR_POS="\033[6n"
-# this is the sampling interval in sec
-TIMES=1
-TEMPPATH="/sys/class/hwmon/hwmon1/uevent"
-TEMPDEVPATH="/sys/class/hwmon/hwmon1/temp1_input"
-CELSIUS="1000.0"
+DEV="EEPROM_SOM_I2C3"
+DEVPATH="/sys/devices/platform/soc@0/42000000.bus/426b0000.i2c/i2c-4/4-0050/uevent"
 #------------------------------------------------------------------------------
 #--- USAGE Instruction
 #------------------------------------------------------------------------------
@@ -58,25 +55,6 @@ function logprint()
 	fi
 }
 #------------------------------------------------------------------------------
-function move_cursor()
-{
-	echo -en "${CURS_DO}" > $STNDOUT
-	echo -en "${CURS_FW}" > $STNDOUT
-}
-#------------------------------------------------------------------------------
-function calc()
-{
-        awk "BEGIN{ printf \"%.1f\n\", $* }";
-}
-#------------------------------------------------------------------------------
-function raw_2_volt()
-{
-        RAW_VAL=$1
-        MILLI=$2
-        _div=$(calc ${RAW_VAL}/${MILLI})
-        echo $_div
-}
-#------------------------------------------------------------------------------
 function main ()
 {
 	case $1 in
@@ -87,14 +65,17 @@ function main ()
 
     	*)	
 			echo ""
-			cat $TEMPPATH > $STNDOUT
+			cat $DEVPATH > $STNDOUT
 			echo ""
 			
-			TMP102_RAW=$(cat $TEMPDEVPATH)
-			TMP102_CONV=$(raw_2_volt $TMP102_RAW $CELSIUS)
+			OFFSET=$((1 + $RANDOM % 1000))
 			
-			echo -e "TEMPERATURE: $TMP102_CONV [°C]"
+			greenprint "testdeveeprom test $DEV $OFFSET"
 			echo ""
+			/root/test-mas/testdeveeprom test $DEV $OFFSET > $STNDOUT
+
+			# erase the test pattern on eeprom
+			/root/test-mas/testdeveeprom erase $DEV $OFFSET >/dev/null 2>/dev/null
 			shift
 			;;
 	esac
