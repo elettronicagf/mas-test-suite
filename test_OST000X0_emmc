@@ -130,7 +130,7 @@ function main ()
 			SIZE=$(dmesg | grep mmcblk0 | grep GiB | awk '{print $6}')
 
 			if (( $(echo "$SIZE >= 7 && $SIZE <= 8" | bc -l) )); then
-				echo -e "eMMC size $WHICHISEMMC is $SIZE. Close to 4GB.           [${GREEN}OK${NON}]"
+				echo -e "eMMC size $WHICHISEMMC is $SIZE. Close to 8GB.           [${GREEN}OK${NON}]"
 				STAT7="OK"
 			else
 				echo -e "eMMC size $WHICHISEMMC is $SIZE. Mismatch.               [${RED}FAIL${NON}]"
