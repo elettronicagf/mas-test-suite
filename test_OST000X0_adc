@@ -114,13 +114,13 @@ function main ()
 				ADC_IN4=$(cat $ADCPATH/in_voltage3_raw)
 				ADC_IN4_CONV=$(raw_2_volt $ADC_IN4 $SCALE_FACT $MILLIVOLT)
 		
-				greenprint "1. ADC_IN0 ... $ADC_IN1_CONV [V]"
+				greenprint "1. ADC_IN0 ... $ADC_IN1_CONV [V] -> VDD_3V3 / 2"
 				echo -en "${CURS_FW}"
-				greenprint "2. ADC_IN1 ... $ADC_IN2_CONV [V]"
+				greenprint "2. ADC_IN1 ... $ADC_IN2_CONV [V] -> VDD_1V8 / 2"
 				echo -en "${CURS_FW}"
-				greenprint "3. ADC_IN2 ... $ADC_IN3_CONV [V]"
+				greenprint "3. ADC_IN2 ... $ADC_IN3_CONV [V] -> NVCC_BBSM_1V8 / 2"
 				echo -en "${CURS_FW}"
-				greenprint "4. ADC_IN3 ... $ADC_IN4_CONV [V]"
+				greenprint "4. ADC_IN3 ... $ADC_IN4_CONV [V] -> VDD_SOC_0V85"
 
 				echo -en "${CURS_UP}"
 				echo -en "${CURS_UP}"
