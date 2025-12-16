@@ -26,6 +26,7 @@ CURS_BW='\033[1D'
 GET_CUR_POS="\033[6n"
 DEV="EEPROM_SOM_I2C3"
 DEVPATH="/sys/devices/platform/soc@0/42000000.bus/426b0000.i2c/i2c-4/4-0050/uevent"
+INTERVAL="4000"
 #------------------------------------------------------------------------------
 #--- USAGE Instruction
 #------------------------------------------------------------------------------
@@ -65,14 +66,29 @@ function main ()
 
     	*)	
 			echo ""
+			greenprint "Info device:"
 			cat $DEVPATH > $STNDOUT
 			echo ""
 			
-			OFFSET=$((1 + $RANDOM % 1000))
+			OFFSET=$((1 + $RANDOM % $INTERVAL)
 			
 			greenprint "testdeveeprom test $DEV $OFFSET"
 			echo ""
-			/root/test-mas/testdeveeprom test $DEV $OFFSET > $STNDOUT
+
+			WRITE_SEQ=$(/root/test-mas/testdeveeprom write $DEV $OFFSET)
+			echo -e "WR: $WRITE_SEQ" > $STNDOUT
+			
+			sleep 1
+			
+			READ_SEQ=$(/root/test-mas/testdeveeprom read $DEV $OFFSET)
+			echo -e "RD: $READ_SEQ" > $STNDOUT
+			echo ""
+			
+			if [[ "$s1" == "$s2" ]]; then
+				greenprint "TEST OK"
+			else 
+				redprint "TEST FAIL"
+			fi
 
 			# erase the test pattern on eeprom
 			/root/test-mas/testdeveeprom erase $DEV $OFFSET >/dev/null 2>/dev/null
