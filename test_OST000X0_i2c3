@@ -70,7 +70,7 @@ function main ()
 			cat $DEVPATH > $STNDOUT
 			echo ""
 			
-			OFFSET=$((1 + $RANDOM % $INTERVAL)
+			OFFSET=$((1 + $RANDOM % $INTERVAL))
 			
 			greenprint "testdeveeprom test $DEV $OFFSET"
 			echo ""
