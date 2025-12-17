@@ -84,7 +84,7 @@ function main ()
 			echo -e "RD: $READ_SEQ" > $STNDOUT
 			echo ""
 			
-			if [[ "$s1" == "$s2" ]]; then
+			if [[ "$WRITE_SEQ" == "$READ_SEQ" ]]; then
 				greenprint "TEST OK"
 			else 
 				redprint "TEST FAIL"
