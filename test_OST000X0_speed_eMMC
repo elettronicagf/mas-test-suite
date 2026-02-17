@@ -50,6 +50,11 @@ function main ()
 		*)
 			WHICHISEMMC="mmcblk0"
 			
+			echo ""                                                
+            greenprint "eMMC IOS:"                                 
+            cat /sys/kernel/debug/mmc0/ios > $STNDOUT              
+            echo "" 
+			
 			MMCINFO=$(sudo mmc extcsd read /dev/$WHICHISEMMC | head -n 3)
 			greenprint "$MMCINFO "
 			echo " "
