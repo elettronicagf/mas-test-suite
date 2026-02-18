@@ -1,0 +1,4 @@
+#!/bin/bash
+
+zstdcat $1 | sudo dd of=/dev/mmcblk0 bs=1M conv=fsync
+
