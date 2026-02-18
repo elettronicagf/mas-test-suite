@@ -148,8 +148,8 @@ function main ()
             hdparm -vtT /dev/$WHICHISEMMC > $STNDOUT                                                                                          
             echo ""                                                                                                                                                                                                                         
             greenprint "TEST WRITE SPEED:"                                                                                    
-            dd if=/dev/urandom of=/tmp/test oflag=direct bs=1MiB count=770 > $STNDOUT                 
-			rm -f /tmp/test
+            dd if=/dev/urandom of=/root/test-mas/test oflag=direct bs=1MiB count=200 > $STNDOUT                 
+			rm -f /root/test-mas/test
 			echo ""
 
 			# Final Check
