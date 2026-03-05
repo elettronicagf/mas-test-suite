@@ -26,8 +26,8 @@ CURS_BW='\033[1D'
 GET_CUR_POS="\033[6n"
 # this is the sampling interval in sec
 TIMES=1
-TEMPPATH="/sys/class/hwmon/hwmon1/uevent"
-TEMPDEVPATH="/sys/class/hwmon/hwmon1/temp1_input"
+TEMPPATH="/sys/class/hwmon/hwmon0/uevent"
+TEMPDEVPATH="/sys/class/hwmon/hwmon0/temp1_input"
 CELSIUS="1000.0"
 #------------------------------------------------------------------------------
 #--- USAGE Instruction
