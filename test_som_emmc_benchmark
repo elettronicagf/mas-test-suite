@@ -1,0 +1,567 @@
+#!/bin/bash
+
+# Author:  Marco Destro <marco.destro@maselettronica.com>
+#
+# This is UNPUBLISHED PROPRIETARY SOURCE CODE of MAS Elettronica;
+# the contents of this file may not be disclosed to third parties, copied
+# or duplicated in any form, in whole or in part, without the prior
+# written permission of MAS Elettronica.
+
+#------------------------------------------------------------------------------
+#--- VARIABLES
+#------------------------------------------------------------------------------
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NON='\033[0m'
+BG='\033[0;44m'
+BLU='\033[1;37m'
+STNDOUT="/dev/tty"
+COMMAND="$(basename "$0")"
+LOGSTATUS="VERBOSE"
+#LOGSTATUS="NONE"
+
+# Default benchmark configuration
+EMMC_DEV_DEFAULT="/dev/mmcblk0"
+TEST_SIZE_MB_DEFAULT=256
+#TEST_FILE_DEFAULT="/tmp/emmc_bench/testfile.bin"
+TEST_FILE_DEFAULT="/run/media/partA-mmcblk0p2/emmc_bench/testfile.bin"
+
+LOG_DIR_BASE="/tmp"
+LOG_DIR=""
+FIO_BIN="fio"
+
+EMMC_DEV="${EMMC_DEV_DEFAULT}"
+TEST_SIZE_MB="${TEST_SIZE_MB_DEFAULT}"
+TEST_FILE="${TEST_FILE_DEFAULT}"
+
+# Summary arrays
+TEST_INDEX=0
+declare -a TEST_NAME
+declare -a TEST_DESC
+declare -a TEST_BS
+declare -a TEST_PATTERN
+declare -a TEST_BW
+declare -a TEST_IOPS
+declare -a TEST_LAT
+
+#------------------------------------------------------------------------------
+#--- USAGE Instruction
+#------------------------------------------------------------------------------
+usage="###############################################################
+$(basename "$0") HELP
+  you can use only the following entries
+
+  $COMMAND --help
+  $COMMAND [--device <dev>] [--size <MiB>] [--file <path>]
+
+  Options:
+    --device, -d   : eMMC block device (default: ${EMMC_DEV_DEFAULT})
+    --size,   -s   : test size in MiB (default: ${TEST_SIZE_MB_DEFAULT})
+    --file,   -f   : test file path (default: ${TEST_FILE_DEFAULT})
+
+  NOTE:
+    - Tests are NON DESTRUCTIVE (done on a file on the eMMC).
+    - Make sure the test file is on a partition of the selected eMMC.
+
+  SUMMARY COLUMNS:
+    BW           : throughput as reported by fio (MiB/s)
+    IOPS         : I/O operations per second (using BS as block size)
+    Lat_avg [us] : average completion latency (microseconds)
+    Rating       : qualitative classification:
+
+      Sequential READ  (Pattern = seq read):
+        GOOD : BW >= 150 MiB/s
+        POOR :  80 MiB/s <= BW < 150 MiB/s
+        BAD  : BW < 80 MiB/s
+
+      Sequential WRITE (Pattern = seq write):
+        GOOD : BW >= 50 MiB/s
+        POOR :  20 MiB/s <= BW < 50 MiB/s
+        BAD  : BW < 20 MiB/s
+
+      Random 4K (Pattern = rand read / rand write):
+        GOOD : IOPS >= 5000
+        POOR :  2000 <= IOPS < 5000
+        BAD  : IOPS < 2000
+
+  EXAMPLE:
+    $COMMAND -d /dev/mmcblk2 -f /run/media/rootfsB-mmcblk2p2/emmc_bench/testfile.bin -s 256
+###############################################################"
+
+#------------------------------------------------------------------------------
+#--- PRINT FUNCTIONS
+#------------------------------------------------------------------------------
+function greenprint()
+{
+  # kept for compatibility, not used
+  echo -e "${GREEN}$1${NON}" > "$STNDOUT"
+}
+#------------------------------------------------------------------------------
+function redprint()
+{
+  echo -e "${RED}$1${NON}" > "$STNDOUT"
+}
+#------------------------------------------------------------------------------
+function logprint()
+{
+  if [[ "$LOGSTATUS" == VERBOSE ]]; then
+    echo -e "$1" > "$STNDOUT"
+  fi
+}
+#------------------------------------------------------------------------------
+function infoprint()
+{
+ if [[ "$LOGSTATUS" == VERBOSE ]]; then
+   echo -e "${BG}${BLU}$COMMAND:${NON} $1${NON}" > $STNDOUT
+ fi
+}
+#------------------------------------------------------------------------------
+function die()
+{
+  redprint "ERROR: $1"
+  exit 1
+}
+
+#------------------------------------------------------------------------------
+#--- ARG PARSING
+#------------------------------------------------------------------------------
+function parse_args()
+{
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help|help|-h)
+        redprint "$usage"
+        exit 0
+      ;;
+      --device|-d)
+        shift
+        [[ -z "$1" ]] && die "Missing argument for --device"
+        EMMC_DEV="$1"
+        logprint "Selected eMMC device: ${EMMC_DEV}"
+        shift
+      ;;
+      --size|-s)
+        shift
+        [[ -z "$1" ]] && die "Missing argument for --size"
+        TEST_SIZE_MB="$1"
+        logprint "Selected test size: ${TEST_SIZE_MB} MiB"
+        shift
+      ;;
+      --file|-f)
+        shift
+        [[ -z "$1" ]] && die "Missing argument for --file"
+        TEST_FILE="$1"
+        logprint "Selected test file: ${TEST_FILE}"
+        shift
+      ;;
+      *)
+        logprint "Unknown argument: $1 (ignored)"
+        shift
+      ;;
+    esac
+  done
+}
+
+#------------------------------------------------------------------------------
+#--- UTILS
+#------------------------------------------------------------------------------
+function ensure_root()
+{
+  if [[ "$(id -u)" -ne 0 ]]; then
+    logprint "Not running as root: some checks may fail or be incomplete."
+  fi
+}
+#------------------------------------------------------------------------------
+function check_dependencies()
+{
+  if ! command -v "${FIO_BIN}" >/dev/null 2>&1; then
+    die "'fio' not found in PATH. Please install it and retry."
+  fi
+  if ! command -v lsblk >/dev/null 2>&1; then
+    logprint "'lsblk' not found; device mapping checks may be limited."
+  fi
+  if ! command -v df >/dev/null 2>&1; then
+    logprint "'df' not found; free-space checks may be limited."
+  fi
+}
+#------------------------------------------------------------------------------
+function prepare_log_dir()
+{
+  local ts
+  ts="$(date +%Y%m%d_%H%M%S)"
+  LOG_DIR="${LOG_DIR_BASE}/emmc_bench_${ts}"
+  mkdir -p "${LOG_DIR}" || die "Cannot create log directory ${LOG_DIR}"
+  logprint "Log directory: ${LOG_DIR}"
+}
+#------------------------------------------------------------------------------
+# Return base block device for directory/file (e.g. /dev/mmcblk2)
+function resolve_underlying_device()
+{
+  local path="$1"
+  local src pk
+
+  src="$(df --output=source "${path}" 2>/dev/null | tail -n1)"
+  if [[ -z "${src}" ]]; then
+    echo ""
+    return
+  fi
+
+  pk="$(lsblk -no PKNAME "${src}" 2>/dev/null)"
+  if [[ -n "${pk}" ]]; then
+    echo "/dev/${pk}"
+  else
+    echo "${src}"
+  fi
+}
+#------------------------------------------------------------------------------
+function check_test_file_location()
+{
+  local dir
+  dir="$(dirname "${TEST_FILE}")"
+  mkdir -p "${dir}" 2>/dev/null || true
+
+  local base_dev
+  base_dev="$(resolve_underlying_device "${dir}")"
+
+  if [[ -z "${base_dev}" ]]; then
+    logprint "Cannot determine underlying device for ${dir}."
+    return
+  fi
+
+  if [[ "${base_dev}" != "${EMMC_DEV}" ]]; then
+    redprint "WARNING: test file (${TEST_FILE}) does NOT seem to be on ${EMMC_DEV} (found: ${base_dev})."
+  else
+    logprint "Test file directory is on ${EMMC_DEV} (${base_dev})."
+  fi
+}
+#------------------------------------------------------------------------------
+function check_free_space()
+{
+  local dir
+  dir="$(dirname "${TEST_FILE}")"
+  local required_mb="${TEST_SIZE_MB}"
+  local avail_mb
+
+  avail_mb="$(df -Pm "${dir}" 2>/dev/null | awk 'NR==2 {print $4}')"
+
+  if [[ -n "${avail_mb}" ]]; then
+    if (( avail_mb < required_mb )); then
+      die "Not enough free space in ${dir}: required ${required_mb} MiB, available ${avail_mb} MiB."
+    else
+      logprint "Free space in ${dir}: ${avail_mb} MiB (required ${required_mb} MiB)."
+    fi
+  else
+    logprint "Cannot determine free space in ${dir}."
+  fi
+}
+#------------------------------------------------------------------------------
+function print_environment_info()
+{
+  logprint "Environment info:"
+  logprint "  Date       : $(date)"
+  logprint "  Hostname   : $(hostname)"
+  logprint "  Kernel     : $(uname -r)"
+  logprint "  eMMC device: ${EMMC_DEV}"
+
+  if [[ -r /proc/cpuinfo ]]; then
+    local cpu
+    cpu="$(grep -m1 -E 'model name|Hardware' /proc/cpuinfo | sed 's/^[^:]*: *//')"
+    [[ -n "${cpu}" ]] && logprint "  CPU        : ${cpu}"
+  fi
+
+  if command -v lsblk >/dev/null 2>&1; then
+    lsblk "${EMMC_DEV}" > "${LOG_DIR}/lsblk_${COMMAND}.log" 2>&1
+    logprint "  eMMC layout saved to ${LOG_DIR}/lsblk_${COMMAND}.log"
+  fi
+}
+#------------------------------------------------------------------------------
+function store_result()
+{
+  local name="$1"
+  local desc="$2"
+  local bs="$3"
+  local pattern="$4"
+  local bw="$5"
+  local iops="$6"
+  local lat="$7"
+
+  TEST_NAME[TEST_INDEX]="${name}"
+  TEST_DESC[TEST_INDEX]="${desc}"
+  TEST_BS[TEST_INDEX]="${bs}"
+  TEST_PATTERN[TEST_INDEX]="${pattern}"
+  TEST_BW[TEST_INDEX]="${bw}"
+  TEST_IOPS[TEST_INDEX]="${iops}"
+  TEST_LAT[TEST_INDEX]="${lat}"
+
+  TEST_INDEX=$((TEST_INDEX + 1))
+}
+#------------------------------------------------------------------------------
+function parse_fio_output()
+{
+  local logfile="$1"
+  local io_kind="$2"   # "read" or "write"
+
+  local bw iops lat
+
+  # BW: first token after BW= (e.g. 57.7MiB/s)
+  bw="$(grep -i " ${io_kind}:" "${logfile}" 2>/dev/null \
+        | grep -o 'BW=[^ ]*' \
+        | head -n1 \
+        | cut -d= -f2)"
+
+  # IOPS
+  iops="$(grep -i " ${io_kind}:" "${logfile}" 2>/dev/null \
+          | grep -o 'IOPS=[^,)]*' \
+          | head -n1 \
+          | cut -d= -f2)"
+
+  # Average latency (clat, in usec)
+  lat="$(grep -i 'clat ' "${logfile}" 2>/dev/null \
+         | grep -o 'avg=[^,)]*' \
+         | head -n1 \
+         | cut -d= -f2)"
+
+  echo "${bw}|${iops}|${lat}"
+}
+#------------------------------------------------------------------------------
+# Rating classification based on thresholds
+function classify_rating()
+{
+  local name="$1"
+  local pattern="$2"
+  local bs="$3"
+  local bw_str="$4"
+  local iops_str="$5"
+
+  local rating="N/A"
+
+  # If test failed
+  if [[ "$bw_str" == "ERR" || "$iops_str" == "ERR" ]]; then
+    rating="${RED}BAD${NON}"
+    echo "$rating"
+    return
+  fi
+
+  # Extract numeric BW (integer MiB/s)
+  local bw_val bw_int iops_int
+  bw_val="${bw_str%%MiB/s*}"   # remove suffix
+  bw_int="${bw_val%.*}"        # drop decimal part
+  [[ -z "$bw_int" ]] && bw_int=0
+
+  # IOPS (fio usually prints integer)
+  iops_int="${iops_str%.*}"
+  [[ -z "$iops_int" ]] && iops_int=0
+
+  # Sequential read
+  if [[ "$pattern" == "seq read" ]]; then
+    if (( bw_int >= 150 )); then
+      rating="${GREEN}GOOD${NON}"
+    elif (( bw_int >= 80 )); then
+      rating="${YELLOW}POOR${NON}"
+    else
+      rating="${RED}BAD${NON}"
+    fi
+
+  # Sequential write
+  elif [[ "$pattern" == "seq write" ]]; then
+    if (( bw_int >= 50 )); then
+      rating="${GREEN}GOOD${NON}"
+    elif (( bw_int >= 20 )); then
+      rating="${YELLOW}POOR${NON}"
+    else
+      rating="${RED}BAD${NON}"
+    fi
+
+  # Random (4k) read/write: use IOPS
+  elif [[ "$pattern" == "rand read" || "$pattern" == "rand write" ]]; then
+    if (( iops_int >= 5000 )); then
+      rating="${GREEN}GOOD${NON}"
+    elif (( iops_int >= 2000 )); then
+      rating="${YELLOW}POOR${NON}"
+    else
+      rating="${RED}BAD${NON}"
+    fi
+
+  else
+    rating="N/A"
+  fi
+
+  echo "$rating"
+}
+#------------------------------------------------------------------------------
+function run_fio_test()
+{
+  local name="$1"
+  local desc="$2"
+  local bs="$3"
+  local pattern="$4"    # e.g. "seq read"
+  local io_kind="$5"    # "read" or "write"
+  shift 5
+
+  local logfile="${LOG_DIR}/${name}.log"
+
+  logprint "Running test: ${name} (${desc})"
+  logprint "  Block size : ${bs}"
+  logprint "  Pattern    : ${pattern}"
+  logprint "  File       : ${TEST_FILE}"
+  logprint "  Size       : ${TEST_SIZE_MB} MiB"
+  logprint "  Log        : ${logfile}"
+
+  ${FIO_BIN} --name="${name}" "$@" > "${logfile}" 2>&1
+  local rc=$?
+
+  if [[ ${rc} -ne 0 ]]; then
+    redprint "Test ${name} FAILED (rc=${rc}). See log: ${logfile}"
+    store_result "${name}" "${desc}" "${bs}" "${pattern}" "ERR" "ERR" "ERR"
+    return
+  fi
+
+  logprint "Test ${name} completed. Log: ${logfile}"
+
+  local stats bw iops lat
+  stats="$(parse_fio_output "${logfile}" "${io_kind}")"
+  bw="$(echo "${stats}" | cut -d'|' -f1)"
+  iops="$(echo "${stats}" | cut -d'|' -f2)"
+  lat="$(echo "${stats}" | cut -d'|' -f3)"
+
+  [[ -z "${bw}" ]] && bw="N/A"
+  [[ -z "${iops}" ]] && iops="N/A"
+  [[ -z "${lat}" ]] && lat="N/A"
+
+  store_result "${name}" "${desc}" "${bs}" "${pattern}" "${bw}" "${iops}" "${lat}"
+}
+#------------------------------------------------------------------------------
+function run_all_tests()
+{
+  # Sequential write 1M
+  run_fio_test "seq_write_1M" \
+    "Sequential write" \
+    "1M" \
+    "seq write" \
+    "write" \
+    --filename="${TEST_FILE}" \
+    --size="${TEST_SIZE_MB}M" \
+    --bs=1M \
+    --rw=write \
+    --direct=1 \
+    --numjobs=1 \
+    --iodepth=4
+
+  # Sequential read 1M
+  run_fio_test "seq_read_1M" \
+    "Sequential read" \
+    "1M" \
+    "seq read" \
+    "read" \
+    --filename="${TEST_FILE}" \
+    --size="${TEST_SIZE_MB}M" \
+    --bs=1M \
+    --rw=read \
+    --direct=1 \
+    --numjobs=1 \
+    --iodepth=4
+
+  # Random read 4k
+  run_fio_test "rand_read_4k" \
+    "Random read" \
+    "4k" \
+    "rand read" \
+    "read" \
+    --filename="${TEST_FILE}" \
+    --size="${TEST_SIZE_MB}M" \
+    --bs=4k \
+    --rw=randread \
+    --direct=1 \
+    --numjobs=1 \
+    --iodepth=16
+
+  # Random write 4k
+  run_fio_test "rand_write_4k" \
+    "Random write" \
+    "4k" \
+    "rand write" \
+    "write" \
+    --filename="${TEST_FILE}" \
+    --size="${TEST_SIZE_MB}M" \
+    --bs=4k \
+    --rw=randwrite \
+    --direct=1 \
+    --numjobs=1 \
+    --iodepth=16
+}
+#------------------------------------------------------------------------------
+function print_summary()
+{
+  # blank line before the summary
+  echo "" > "$STNDOUT"
+  infoprint "Benchmark Summary"
+  echo "" > "$STNDOUT"
+
+  if (( TEST_INDEX == 0 )); then
+    logprint "No tests executed."
+    return
+  fi
+
+  local header_fmt="%-14s %-18s %-6s %-11s %-12s %-10s %-14s %-10s"
+
+  # header via logprint (Lat_avg [us] + Rating)
+  logprint "$(printf "$header_fmt" \
+    'Test' 'Description' 'BS' 'Pattern' 'BW' 'IOPS' 'Lat_avg [us]' 'Rating')"
+
+  # separator
+  logprint "$(printf '%0.s-' {1..100})"
+
+  # rows
+  local i rating
+  local row_fmt="$header_fmt"
+
+  for (( i=0; i<TEST_INDEX; i++ )); do
+    rating="$(classify_rating \
+      "${TEST_NAME[i]}" \
+      "${TEST_PATTERN[i]}" \
+      "${TEST_BS[i]}" \
+      "${TEST_BW[i]}" \
+      "${TEST_IOPS[i]}")"
+
+    logprint "$(printf "$row_fmt" \
+      "${TEST_NAME[i]}" \
+      "${TEST_DESC[i]}" \
+      "${TEST_BS[i]}" \
+      "${TEST_PATTERN[i]}" \
+      "${TEST_BW[i]}" \
+      "${TEST_IOPS[i]}" \
+      "${TEST_LAT[i]}" \
+      "${rating}")"
+  done
+
+  echo "" > "$STNDOUT"
+}
+#------------------------------------------------------------------------------
+#--- MAIN
+#------------------------------------------------------------------------------
+function main ()
+{
+  infoprint "Start"
+  parse_args "$@"
+
+  ensure_root
+  check_dependencies
+  prepare_log_dir
+
+  infoprint "eMMC benchmark configuration "
+  logprint "Target eMMC device : ${EMMC_DEV}"
+  logprint "Test file          : ${TEST_FILE}"
+  logprint "Test size          : ${TEST_SIZE_MB} MiB"
+
+  check_test_file_location
+  check_free_space
+  print_environment_info
+
+  infoprint "Starting eMMC benchmark "
+  run_all_tests
+  print_summary
+}
+
+main "$@"
+
